@@ -138,9 +138,9 @@ Run them from the repository root, for example
 
 Questions about the project:
 
-- Tam Khong: EMAIL
-- Eric Toan: EMAIL
-- Ethan Wan: EMAIL
+- Tam Khong: [tkhong@charlotte.edu](mailto:tkhong@charlotte.edu)
+- Eric Toan: [ntoan@charlotte.edu](mailto:ntoan@charlotte.edu)
+- Ethan Wan: [ewan@charlotte.edu](mailto:ewan@charlotte.edu)
 
 You can also [open an issue](https://github.com/tkhong-gif/house-price-prediction/issues)
 on GitHub.
