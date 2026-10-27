@@ -38,6 +38,7 @@ DEMO_DIR = "demo/"
 
 
 def main():
+    """Train the demo model on the sample, print its test metrics and save it."""
     cfg = load_config()
     df = read_dataframe(os.path.join(cfg["paths"]["root"], "data", "sample"), "properties_sample.csv")
     df = df[df[TARGET].notna() & (df[TARGET] > 0)].drop(columns=SALE_DERIVED_FEATURES)

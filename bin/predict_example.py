@@ -45,6 +45,7 @@ EXAMPLE_HOUSE = {
 
 
 def main():
+    """Print the example house's estimate from the full models, or the demo model with --demo."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--demo", action="store_true", help="use the demo model from bin/quick_train.py")
     args = parser.parse_args()

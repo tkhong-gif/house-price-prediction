@@ -112,6 +112,8 @@ NUMERIC_COLUMNS = [
 
 
 def load_mecklenburg(raw_path):
+    """Read the Mecklenburg County CAMA table from data/raw/merklenburg/ as a
+    DataFrame, with the county's original column names."""
     path = raw_path + "merklenburg/Cama_Table_transformed.csv"
     # A copy re-saved by Excel under a European locale uses ";" between columns and
     # "," as the decimal mark - detect that from the header instead of misparsing it.
@@ -128,6 +130,9 @@ def load_mecklenburg(raw_path):
 
 
 def meck_to_common(df):
+    """Map the Mecklenburg columns onto the shared schema (COMMON_COLUMNS): owner
+    name from last + first name, bathrooms as full baths + 0.5 per half bath, and
+    latitude/longitude from the source's swapped x/y columns."""
     out = pd.DataFrame({
         "county": "Mecklenburg",
         "parcel_id": df["parcelid"],
@@ -159,6 +164,8 @@ def meck_to_common(df):
 
 
 def nc_places_map(path,cfg):
+    """Reduce the Overture places GeoParquet at `path` to four columns (lon, lat,
+    name, category), save it as data/processed/nc_places_map.csv and return its path."""
     poi = gpd.read_parquet(path)
     df = pd.DataFrame({
         "lon": poi.geometry.x,
@@ -172,6 +179,8 @@ def nc_places_map(path,cfg):
 
 
 def merge_all_counties(raw_path):
+    """Load every county and stack them into one table on the shared schema. Only
+    Mecklenburg is currently included."""
     return pd.concat(
         [
             meck_to_common(load_mecklenburg(raw_path)),
@@ -203,6 +212,9 @@ def sale_price_outlier_mask(sale_price):
 
 
 def is_individual_owner(owner_name):
+    """True for owners that look like a person: no business or institution keyword
+    (NON_INDIVIDUAL_OWNER_KEYWORDS, e.g. LLC, TRUST, CHURCH) in the name. Blank names
+    count as individuals, so those rows are kept."""
     upper = owner_name.fillna("").str.upper()
     is_entity = upper.str.contains(NON_INDIVIDUAL_OWNER_PATTERN, regex=True)
     is_blank = upper.str.strip() == ""
@@ -210,6 +222,16 @@ def is_individual_owner(owner_name):
 
 
 def clean_properties(df):
+    """Clean the combined property table, in this order:
+
+    1. Drop duplicate rows and convert NUMERIC_COLUMNS to numbers.
+    2. Blank out impossible sale dates, zero or outlier sale prices, and unknown
+       (0) or future build years.
+    3. Add `arms_length_sale`, a rough flag for normal market sales (price range
+       and a recent sale date).
+    4. Keep only single-family homes, condos and townhouses whose heated area is
+       missing or within MIN_HEATED_AREA to MAX_HEATED_AREA.
+    5. Remove business and institution owners, then drop owner_name."""
     df = df.drop_duplicates().copy()
 
     for col in NUMERIC_COLUMNS:
@@ -295,6 +317,8 @@ def assign_area(df):
 
 
 def run():
+    """Stage 2: write the places map, then load, clean and assign areas to the county
+    records and save data/processed/properties_clean.csv."""
     cfg = load_config()
     raw_path = resolve_path(cfg, "raw_data")
     processed_path = resolve_path(cfg, "processed_data")

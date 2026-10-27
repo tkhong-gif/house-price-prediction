@@ -81,6 +81,9 @@ def validation_houses(test, reports_path, name):
 
 
 def run():
+    """Stage 5b: retrain the last run's best model with its chosen settings, compare
+    it with the last run on the test set and the validation houses, and save the
+    model to output/models/finetuned/ and its reports to reports/finetuned_*.csv."""
     cfg = load_config()
     training_cfg = cfg["training"]
     reports_path = resolve_path(cfg, "reports")

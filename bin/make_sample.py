@@ -28,6 +28,7 @@ PRIVATE_COLUMNS = ["situs_street_num", "situs_street_name", "situs_zip", "deed_b
 
 
 def main():
+    """Write the sample, and with --shared also the full shareable feature table."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--shared", help="also write the full feature table, minus private columns, here")
     args = parser.parse_args()

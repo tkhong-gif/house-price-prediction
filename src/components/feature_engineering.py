@@ -98,11 +98,14 @@ ACTIVITY_CATS = [
 ]
 
 def add_property_age(df):
+    """Add `property_age`: the current year minus the year built."""
     df["property_age"] = CURRENT_YEAR - df["year_built"]
     return df
 
 
 def add_price_per_sqft(df):
+    """Add `price_per_sqft` (sale price / heated area), only for arms-length sales
+    with heated area above 0. It is missing for every other row."""
     df["price_per_sqft"] = np.nan
     valid = df["arms_length_sale"] & df["heated_area"].gt(0)
     df.loc[valid, "price_per_sqft"] = df.loc[valid, "sale_price"] / df.loc[valid, "heated_area"]
@@ -147,6 +150,10 @@ def places_within_miles(house_df, places, radius_miles, cats=None):
 
 
 def add_accessibility(df, nc_places_df):
+    """Add the accessibility features from the places table: distance to the nearest
+    school, fire station, police station and emergency department, the number of
+    places within COUNT_RADIUS_MILES, and the share of those places that are health
+    care or activities."""
     places = label_emergency_departments(nc_places_df)
     df["education_nearest_miles"] = nearest_place_miles(df, places, EDUCATION_CATS)
     df["places_count"] = places_within_miles(df, places, COUNT_RADIUS_MILES)
@@ -208,6 +215,7 @@ def add_price_momentum(df, source=None):
 
 
 def build_features(df, nc_places_df):
+    """Apply every feature step in order and return the feature table."""
     df = add_property_age(df)
     df = add_price_per_sqft(df)
     df = add_neighborhood_aggregates(df)
@@ -217,6 +225,8 @@ def build_features(df, nc_places_df):
 
 
 def run():
+    """Stage 3: read the cleaned properties and the places map, build all features and
+    save data/features/properties_features.csv."""
     cfg = load_config()
     processed_path = resolve_path(cfg, "processed_data")
     features_path = resolve_path(cfg, "features_data")

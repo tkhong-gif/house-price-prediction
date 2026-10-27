@@ -84,17 +84,24 @@ def load_training_data(features_path):
 
 
 def split_with_aggregates(df, training_cfg):
+    """Split rows into train and test (config test_size and random_state), then add
+    the neighborhood price features and price_momentum to both, computed from the
+    training rows only."""
     train, test = train_test_split(
         df, test_size=training_cfg["test_size"], random_state=training_cfg["random_state"]
     )
 
     def add(rows):
+        """Add the sale-derived features to `rows`, using the training rows as the source."""
         return add_price_momentum(add_neighborhood_aggregates(rows, source=train), source=train)
 
     return add(train), add(test)
 
 
 def build_preprocessor(features):
+    """Preprocessing for the given feature columns: numeric columns get median
+    imputation and standard scaling, categorical columns get most-frequent imputation
+    and one-hot encoding (categories not seen in training are ignored)."""
     numeric_pipeline = Pipeline([
         ("impute", SimpleImputer(strategy="median")),
         ("scale", StandardScaler()),
@@ -110,6 +117,8 @@ def build_preprocessor(features):
 
 
 def eval_metrics(y_true, y_pred):
+    """RMSE, MAE, R squared and mean absolute percentage error of predictions against
+    the actual values."""
     return {
         "rmse": root_mean_squared_error(y_true, y_pred),
         "mae": mean_absolute_error(y_true, y_pred),
@@ -137,6 +146,9 @@ XGBOOST_PARAM_DISTRIBUTIONS = {
 
 
 def build_search_estimators(random_state, training_cfg):
+    """A hyperparameter search (RandomizedSearchCV) per model type, each trying
+    config `search_iter` settings from its parameter grid with `cv_folds`-fold
+    cross-validation, scored by RMSE."""
     # n_jobs=1 on each base estimator, n_jobs=-1 on the search itself: parallelizes across
     # search candidates/CV folds (separate worker processes) instead of nesting parallelism
     # inside each fit. Also required for xgboost specifically - on this xgboost 3.4.1 /
@@ -161,6 +173,11 @@ def build_search_estimators(random_state, training_cfg):
 
 
 def train_models(train, test, training_cfg):
+    """For each feature set: fit its preprocessor, tune and fit every model in
+    MODEL_TYPES on log(1 + total_value), and score it on the test set in dollars.
+
+    Returns (metrics, models, preprocessors, best hyperparameters). Metrics and
+    models are keyed by (feature_set, model_name), preprocessors by feature set."""
     results = {}
     models = {}
     preprocessors = {}
@@ -188,6 +205,8 @@ def train_models(train, test, training_cfg):
 
 
 def save_artifacts(models_path, preprocessors, models):
+    """Save each preprocessor and model to `models_path` as
+    {feature_set}_preprocessor.joblib and {feature_set}_{model_name}.joblib."""
     os.makedirs(models_path, exist_ok=True)
     for set_name, preprocessor in preprocessors.items():
         joblib.dump(preprocessor, os.path.join(models_path, f"{set_name}_preprocessor.joblib"))
@@ -196,6 +215,9 @@ def save_artifacts(models_path, preprocessors, models):
 
 
 def run():
+    """Stage 4: load the feature table, split it, tune and train every model, print
+    the metrics, and save the models, reports/training_metrics.csv and
+    reports/best_hyperparameters.json."""
     cfg = load_config()
     training_cfg = cfg["training"]
     features_path = resolve_path(cfg, "features_data")

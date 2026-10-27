@@ -69,6 +69,8 @@ def summarize(results):
 
 
 def print_validation(results):
+    """Print each house's percent error for every model, then each model's mean and
+    worst error."""
     error_cols = [c for c in results if c.endswith("__pct_error")]
     shown = results[["parcel_id", "area", TARGET] + error_cols].copy()
     shown["parcel_id"] = shown["parcel_id"].astype("Int64")
@@ -80,6 +82,7 @@ def print_validation(results):
 
 
 def run():
+    """Stage 5: run the 10-house check, print it and save reports/validation_houses.csv."""
     results = validate_houses()
     print_validation(results)
     save_dataframe(results, resolve_path(load_config(), "reports"), "validation_houses.csv")

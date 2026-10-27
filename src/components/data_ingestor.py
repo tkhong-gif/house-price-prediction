@@ -1,3 +1,9 @@
+"""Stage 1: download the raw data.
+
+Downloads the Overture Maps places file (schools, clinics, parks, fire stations and
+so on) for the bounding box in config/config.yaml. The Mecklenburg County property
+CSV is not downloaded here; it is placed in data/raw/merklenburg/ by hand."""
+
 import os
 import json
 import subprocess
@@ -7,7 +13,9 @@ from src.utils.load_config import load_config
 
 
 class data_ingestor:
+    """Downloads the raw input files listed in config/config.yaml into data/raw/."""
     def __init__(self):
+        """Load the config and remember the project root and raw-data folder."""
         self.cfg = load_config()
         self.ROOT_PATH = self.cfg["paths"]["root"]
         self.RAW_PATH = self.cfg['paths']['raw_data']
@@ -28,6 +36,9 @@ class data_ingestor:
             print(f"{source}: {len(payload['features'])} features -> {out_file}")
 
     def fetch_places(self,_,bbox):
+        """Download Overture Maps places inside `bbox` ("min_lon,min_lat,max_lon,max_lat")
+        to the GeoParquet file at the given path, using the overturemaps command-line
+        tool. Skipped if the file already exists. Returns the file path."""
         _ = Path(_)
         if _.exists():
             return _
@@ -72,6 +83,7 @@ class data_ingestor:
         return meta
 
     def health_check(self, response):
+        """True if an HTTP response succeeded (status 200). Not currently used."""
         return response.status_code == 200
 
 

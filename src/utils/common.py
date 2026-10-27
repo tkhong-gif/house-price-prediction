@@ -1,3 +1,5 @@
+"""Small path and CSV helpers shared by every pipeline stage."""
+
 import os
 
 import pandas as pd
