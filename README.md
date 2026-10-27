@@ -95,7 +95,7 @@ are trained on 30 times more houses.
 The full feature table and trained models are too large for GitHub (no file
 over 100 MB), so they are on Google Drive:
 
-**Download: [Google Drive folder](GOOGLE_DRIVE_LINK)** (about 690 MB)
+**Download: [Google Drive folder](https://drive.google.com/drive/folders/1IyK-7Sx1CYXt_PqKBSZho8eg_S3ajMOv?usp=drive_link)** (about 690 MB)
 
 | File in the Drive folder | Size | Needed for |
 |---|---|---|
