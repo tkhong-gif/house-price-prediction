@@ -15,6 +15,7 @@ price.
 - [Example code (`bin/`)](#example-code-bin)
 - [Contact](#contact)
 - [License](#license)
+- [Use of AI tools](#use-of-ai-tools)
 - [Documentation of every stage and function](#srcutils)
 
 ## Installation
@@ -148,6 +149,15 @@ on GitHub.
 ## License
 
 This project is released under the MIT License. See [LICENSE](LICENSE).
+
+## Use of AI tools
+
+We used Claude (Anthropic) as a coding assistant to help organize the
+repository, write the example scripts in `bin/`, add function comments, draft
+parts of this README (installation, get started, data download and contact
+sections), create the demo sample dataset, and check for mistakes and personal
+data. The data pipeline, features and models are our own work. All
+AI-assisted changes were reviewed and tested by the authors.
 
 ## Research question
 
