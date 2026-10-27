@@ -197,7 +197,7 @@ as described below.
 |---|---|---|
 | Config loading | `src/utils/load_config.py` | Implemented |
 | Shared helpers | `src/utils/common.py` | Implemented |
-| 1. Ingest raw data | `src/components/data_ingestor.py` | Implemented |
+| 1. Ingest raw data | `src/components/data_ingestor.py` | Implemented. Already run once; only needed to rebuild from scratch |
 | 2. Clean and assign areas | `src/components/data_preprocessing.py` | Implemented |
 | 3. Feature engineering | `src/components/feature_engineering.py` | Implemented. School quality not yet added. |
 | 4. Training | `src/components/training.py` | Implemented |
@@ -261,7 +261,7 @@ See [Installation](#installation). `overturemaps` is used as a command-line tool
 Run from the repository root:
 
 ```bash
-uv run python -m src.components.data_ingestor        # download places data
+uv run python -m src.components.data_ingestor        # download places data (skipped if already downloaded)
 uv run python -m src.components.data_preprocessing   # clean and assign areas
 uv run python -m src.components.feature_engineering  # add features
 uv run python -m src.components.training             # train models
@@ -357,6 +357,20 @@ Small helpers used by every stage:
 ### `data_ingestor.py`
 
 Downloads raw data. Contains one class, `data_ingestor`.
+
+**When it is needed.** Only once, when building the project from scratch. It has
+already been run, and its output (`data/raw/NC parquet/nc_places.parquet`) is
+what the accessibility features were built from. No other module imports it,
+and running it again does nothing if the file is already there. It is not
+needed for the get-started demo, `predict` or `evaluating`, because the sample
+and the shared feature table already include the places-based features.
+
+What is currently switched off:
+
+- The ArcGIS downloads for other counties (`ingest()` and `_fetch_all()`),
+  because the project is Mecklenburg-only. They run again if the `sources`
+  block in `config/config.yaml` is uncommented.
+- `health_check()`, which nothing calls.
 
 - `fetch_places(path, bbox)`: runs `overturemaps download --type=place` for the
   configured bounding box and saves the result as GeoParquet. If the file
