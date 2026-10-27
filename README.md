@@ -218,7 +218,7 @@ XGBoost setup is kept in `training.py` and can be switched back on.
 |---|---|---|
 | `with_neighborhood_price_random_forest` (default) | Retrained by `finetune.py`, uses `price_momentum` | RMSE $74,390, MAE $29,571, R squared 0.957, average error 5.50% |
 | `without_neighborhood_price_random_forest` | From the last full training run, ignores `price_momentum` | RMSE $76,400, MAE $31,269, R squared 0.955, average error 5.81% |
-| `*_xgboost` | Not used. The with-neighborhood-price one no longer fits its shared preprocessor. | |
+| `*_xgboost` | Not included. XGBoost is switched off (see `training.MODEL_TYPES`), so no XGBoost model files are saved or shared. | |
 
 A full training run (`uv run python -m src.components.training`) retrains both
 random forests with every current feature and tunes their settings again.
