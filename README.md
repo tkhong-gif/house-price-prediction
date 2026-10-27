@@ -19,7 +19,7 @@ price.
 
 ## Installation
 
-**Requirements:** Python 3.14 or newer, and about 2 GB of free disk space if
+**Requirements:** Python 3.14 or newer, and about 1 GB of free disk space if
 you download the full models.
 
 **Required libraries** (all installed by the commands below):
