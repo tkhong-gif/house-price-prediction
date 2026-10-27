@@ -8,7 +8,6 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "anthropic>=1.8.0",
     "fastapi>=0.141.1",
     "geopandas>=1.1.4",
     "ipykernel>=7.3.0",
@@ -18,7 +17,6 @@ dependencies = [
     "overturemaps>=1.0.2",
     "pandas",
     "path>=17.1.1",
-    "python-dotenv>=1.2.3",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
     "scikit-learn>=1.9.0",

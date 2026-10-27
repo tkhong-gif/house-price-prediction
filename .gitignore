@@ -14,5 +14,6 @@ venv/
 
 PLAN.md
 data/*
+!data/sample/
 output/*
 reports/*

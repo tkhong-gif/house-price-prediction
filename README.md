@@ -7,6 +7,148 @@ trains models that estimate a property's assessed value (`total_value`). The
 estimate is meant as a reference number people can use when judging a market
 price.
 
+**Team:** Tam Khong, Eric Toan, Ethan Wan
+
+- [Installation](#installation)
+- [Get started: train a demo model in under a minute](#get-started-train-a-demo-model-in-under-a-minute)
+- [Full data and trained models](#full-data-and-trained-models)
+- [Example code (`bin/`)](#example-code-bin)
+- [Contact](#contact)
+- [License](#license)
+- [Documentation of every stage and function](#srcutils)
+
+## Installation
+
+**Requirements:** Python 3.14 or newer, and about 2 GB of free disk space if
+you download the full models.
+
+**Required libraries** (all installed by the commands below):
+
+| Library | Used for |
+|---|---|
+| `pandas`, `numpy` | loading and transforming the property tables |
+| `scikit-learn` | preprocessing, random forest models, metrics, nearest-neighbor lookups |
+| `xgboost` | alternative model type (kept in `training.py`, currently switched off) |
+| `geopandas` | reading the Overture Maps places file (GeoParquet) |
+| `overturemaps` | command-line tool that downloads the places data |
+| `pyyaml` | reading `config/config.yaml` |
+| `requests` | ArcGIS downloads for other counties (currently switched off) |
+| `matplotlib`, `seaborn`, `ipykernel` | notebooks and figures |
+| `joblib` | saving and loading models (comes with scikit-learn) |
+
+**Option A: with [uv](https://docs.astral.sh/uv/) (recommended).** It reads
+`uv.lock` and installs the exact versions we used.
+
+```bash
+git clone https://github.com/tkhong-gif/house-price-prediction.git
+cd house-price-prediction
+pip install uv        # only if you don't have uv yet
+uv sync
+```
+
+**Option B: with pip.**
+
+```bash
+git clone https://github.com/tkhong-gif/house-price-prediction.git
+cd house-price-prediction
+python -m venv .venv
+# Windows:            .venv\Scripts\activate
+# macOS / Linux:      source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+With Option B, run the commands below with `python` instead of `uv run python`.
+
+## Get started: train a demo model in under a minute
+
+The repository includes a small dataset, `data/sample/properties_sample.csv`:
+10,000 randomly chosen houses from the full feature table (295,000 houses),
+with addresses, deed references and parcel IDs removed. It needs no download.
+
+```bash
+uv run python bin/quick_train.py            # train on the sample
+uv run python bin/predict_example.py --demo # estimate one house with that model
+```
+
+Expected output (about 5 seconds):
+
+```
+loaded 9,998 houses from the sample
+trained on 7,998 houses, tested on 2,000
+  RMSE             $98,424
+  MAE              $48,833
+  R squared        0.903
+  average error    9.3%
+saved demo model to .../output/models/demo/
+Example house: 2 bed, 1 bath, 1,017 sq ft, built 1950, CHARLOTTE_1
+  with_neighborhood_price: $217,443
+```
+
+The demo runs the same steps as the full training (split, neighborhood price
+features from training houses only, preprocessing, random forest on
+log(value)), with fixed settings instead of a hyperparameter search. The full
+models are more accurate (R squared 0.957, average error 5.5%) because they
+are trained on 30 times more houses.
+
+## Full data and trained models
+
+The full feature table and trained models are too large for GitHub (no file
+over 100 MB), so they are on Google Drive:
+
+**Download: [Google Drive folder](GOOGLE_DRIVE_LINK)** (about 690 MB)
+
+| File in the Drive folder | Size | Needed for |
+|---|---|---|
+| `output/models/*.joblib` (4 files) | 590 MB | `predict`, `evaluating` |
+| `data/features/properties_features.csv` | 100 MB | `evaluating`, `training`, `finetune` |
+
+1. Open the link and click **Download** (top right). Google zips the folder.
+   For large files it shows a "can't scan for viruses" notice; click
+   **Download anyway**.
+2. Unzip it. It contains `output/` and `data/` folders.
+3. Copy those two folders into the cloned repository, so the files end up at
+   `house-price-prediction/output/models/...` and
+   `house-price-prediction/data/features/properties_features.csv`. Merge with
+   the existing `data/` folder if asked.
+4. Check that it works:
+
+   ```bash
+   uv run python bin/predict_example.py         # full models
+   uv run python -m src.components.evaluating   # 10 test houses, about 5.6% average error
+   ```
+
+The raw county file (`Cama_Table_transformed.csv`) is not shared, because it
+contains owners' names and mailing addresses. It is only needed to rebuild the
+pipeline from the start. It is the Mecklenburg County tax assessor's CAMA
+table, available from the county, and goes in `data/raw/merklenburg/`. See
+[Running each stage](#running-each-stage).
+
+## Example code (`bin/`)
+
+| Script | What it does |
+|---|---|
+| [`bin/quick_train.py`](bin/quick_train.py) | Trains a demo random forest on the sample and prints its accuracy |
+| [`bin/predict_example.py`](bin/predict_example.py) | Estimates one example house; `--demo` uses the demo model |
+| [`bin/make_sample.py`](bin/make_sample.py) | Rebuilds the sample (and the shareable full table) from the feature table |
+
+Run them from the repository root, for example
+`uv run python bin/quick_train.py`.
+
+## Contact
+
+Questions about the project:
+
+- Tam Khong: EMAIL
+- Eric Toan: EMAIL
+- Ethan Wan: EMAIL
+
+You can also [open an issue](https://github.com/tkhong-gif/house-price-prediction/issues)
+on GitHub.
+
+## License
+
+This project is released under the MIT License. See [LICENSE](LICENSE).
+
 ## Research question
 
 How much of a home's assessed value in Mecklenburg County is explained by the
@@ -111,11 +253,7 @@ predict.py                          (loads the saved models)
 
 ## Setup
 
-```bash
-uv sync
-```
-
-Requires Python 3.14 or newer. `overturemaps` is used as a command-line tool
+See [Installation](#installation). `overturemaps` is used as a command-line tool
 (called through `subprocess`), not as a Python import.
 
 ## Running each stage
@@ -642,6 +780,7 @@ currently run on its own with `python -m`.
 ## Repository layout
 
 ```
+bin/              example scripts: quick demo training and prediction
 src/components/   pipeline stages
 src/utils/        config loading and CSV helpers
 src/pipeline/     not yet complete
@@ -649,9 +788,10 @@ api/              not yet complete (empty main.py)
 config/           config.yaml, schema.yaml (empty)
 data/raw/         downloaded and hand-placed source files
 data/processed/   cleaned properties and places map
-data/features/    feature table used for training and search
+data/features/    feature table used for training
+data/sample/      10,000-house sample for the get-started demo (in the repo)
 notebooks/        exploration notebooks
-output/models/    trained preprocessors and models (finetuned/ holds retrained ones)
+output/models/    trained preprocessors and models (finetuned/ holds retrained ones, demo/ the quick_train.py model)
 reports/          training metrics, chosen hyperparameters, house validation
 test/             no tests yet
 Dockerfile        placeholder, not yet complete
