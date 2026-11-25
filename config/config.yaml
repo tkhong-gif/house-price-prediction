@@ -1,10 +1,5 @@
-name: housing
-version: 0.0.1
-schema: v1
-
-# Path to each directory
+# Path to each directory, relative to the project root (load_config adds the root)
 paths:
-  root: Let-me-have-a-house/
   raw_data: data/raw/
   processed_data: data/processed/
   features_data: data/features/
@@ -30,7 +25,7 @@ params:
   returnGeometry: true
   outSR: 4326
 
-# hospital, park, everything else
+# Overture Maps places download (schools, clinics, parks, fire stations, ...)
 nc_places:
   bbox: "-81.5,34.8,-80.1,36.0"
 # training.py: models per feature set (see training.FEATURE_SETS / MODEL_TYPES),

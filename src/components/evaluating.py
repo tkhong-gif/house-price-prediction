@@ -56,7 +56,12 @@ def validate_houses(n=VALIDATION_SIZE, parcel_ids=None, random_state=0):
     results = houses[DISPLAY_COLUMNS].reset_index(drop=True)
     for feature_set, features in FEATURE_SETS.items():
         for model_name in MODEL_TYPES:
-            preprocessor, model = predict.load_model(feature_set, model_name)
+            try:
+                preprocessor, model = predict.load_model(feature_set, model_name)
+            except FileNotFoundError:
+                # e.g. models downloaded before gradient_boosting was added: retrain to include it
+                print(f"skipping {feature_set} {model_name}: not trained yet")
+                continue
             add_estimates(results, houses, f"{feature_set}__{model_name}", preprocessor, model, features)
     return results
 

@@ -1,10 +1,16 @@
-"""Train random forest regressors for `total_value` (Mecklenburg).
+"""Train random forest and gradient boosting regressors for `total_value` (Mecklenburg).
 
 Reads data/features/properties_features.csv and trains each model type in
-MODEL_TYPES on two feature sets. Only random forest is enabled for now - it beat
-xgboost on every feature set in the last full run - so 2 models are trained; the
-xgboost setup is kept in build_search_estimators and can be switched back on by
-adding it to MODEL_TYPES.
+MODEL_TYPES on two feature sets, so 4 models are trained:
+
+- random_forest: sklearn RandomForestRegressor
+- gradient_boosting: sklearn HistGradientBoostingRegressor. Same method as xgboost
+  (small trees added one after another, each correcting the ones before), without
+  the extra dependency or the macOS crash xgboost had. On the 10,000-house sample it
+  beat the random forest by about 1.3 points of average error (7.97% vs 9.3%).
+
+The xgboost setup is still in build_search_estimators and can be switched back on by
+adding "xgboost" to MODEL_TYPES (install it with `uv sync --extra xgboost`).
 
 - with_neighborhood_price: every feature, including neighborhood_median_price_per_sqft
 - without_neighborhood_price: the same minus that column. The neighborhood price
@@ -34,7 +40,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import (
     mean_absolute_error,
@@ -45,7 +51,6 @@ from sklearn.metrics import (
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from xgboost import XGBRegressor
 
 from src.components.feature_engineering import add_neighborhood_aggregates, add_price_momentum
 from src.utils.common import read_dataframe, resolve_path, save_dataframe
@@ -72,13 +77,14 @@ FEATURE_SETS = {
 }
 # Model types trained, validated and served. "xgboost" is also available (see
 # build_search_estimators) but left out for now.
-MODEL_TYPES = ["random_forest"]
+MODEL_TYPES = ["random_forest", "gradient_boosting"]
 
 
-def load_training_data(features_path):
-    """Rows with a positive target. The feature file's sale-derived features are
+def load_training_data(features_path, filename="properties_features.csv"):
+    """Rows with a positive target from a feature table (the full one by default, or
+    e.g. data/sample/properties_sample.csv). The file's sale-derived features are
     dropped - they were computed on every row, so split_with_aggregates recomputes them."""
-    df = read_dataframe(features_path, "properties_features.csv")
+    df = read_dataframe(features_path, filename)
     df = df[df[TARGET].notna() & (df[TARGET] > 0)]
     return df.drop(columns=SALE_DERIVED_FEATURES)
 
@@ -99,9 +105,9 @@ def split_with_aggregates(df, training_cfg):
 
 
 def build_preprocessor(features):
-    """Preprocessing for the given feature columns: numeric columns get median
-    imputation and standard scaling, categorical columns get most-frequent imputation
-    and one-hot encoding (categories not seen in training are ignored)."""
+    """Preprocessing for the given feature columns: CATEGORICAL_FEATURES get
+    most-frequent imputation and one-hot encoding (categories not seen in training are
+    ignored), every other column median imputation and standard scaling."""
     numeric_pipeline = Pipeline([
         ("impute", SimpleImputer(strategy="median")),
         ("scale", StandardScaler()),
@@ -111,7 +117,7 @@ def build_preprocessor(features):
         ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
     ])
     return ColumnTransformer([
-        ("num", numeric_pipeline, [c for c in features if c in NUMERIC_FEATURES]),
+        ("num", numeric_pipeline, [c for c in features if c not in CATEGORICAL_FEATURES]),
         ("cat", categorical_pipeline, [c for c in features if c in CATEGORICAL_FEATURES]),
     ])
 
@@ -136,19 +142,57 @@ RANDOM_FOREST_PARAM_DISTRIBUTIONS = {
     "min_samples_leaf": [1, 2, 5, 10],
     "max_features": ["sqrt", "log2", 0.5, 1.0],
 }
+# Gradient boosting stops adding trees by itself (early stopping on 10% of the training
+# rows, after 50 trees without improvement), so the number of trees isn't searched.
+# The ranges are centred on the best settings from a 30-candidate search on the sample
+# (learning_rate 0.03, max_leaf_nodes 63, min_samples_leaf 10, l2 1.0, max_features 0.5).
+GRADIENT_BOOSTING_BASE = dict(max_iter=3000, early_stopping=True, validation_fraction=0.1, n_iter_no_change=50)
+GRADIENT_BOOSTING_PARAM_DISTRIBUTIONS = {
+    "learning_rate": [0.03, 0.05, 0.1],
+    "max_leaf_nodes": [31, 63, 127],
+    "min_samples_leaf": [10, 20, 50],
+    "l2_regularization": [0.0, 1.0, 5.0],
+    "max_features": [0.5, 0.8, 1.0],
+}
+# Each boosting step adds learning_rate x a correction, so a small learning_rate needs
+# many trees: 0.01 x 100 trees barely moves from the starting guess (20.9% average
+# error on the sample). Every combination here allows enough steps.
 XGBOOST_PARAM_DISTRIBUTIONS = {
-    "n_estimators": [100, 200, 300, 400],
-    "max_depth": [3, 4, 5, 6, 8],
-    "learning_rate": [0.01, 0.03, 0.05, 0.1, 0.2],
-    "subsample": [0.7, 0.8, 0.9, 1.0],
-    "colsample_bytree": [0.7, 0.8, 0.9, 1.0],
+    "n_estimators": [400, 700, 1000],
+    "max_depth": [5, 6, 8],
+    "learning_rate": [0.03, 0.05, 0.1],
+    "subsample": [0.8, 1.0],
+    "colsample_bytree": [0.8, 1.0],
+    "min_child_weight": [1, 5, 10],
+}
+
+# Fixed settings for quick runs that skip the search (bin/quick_train.py, analysis.py).
+DEFAULT_PARAMS = {
+    "random_forest": {"n_estimators": 100, "max_depth": 20, "min_samples_leaf": 2, "max_features": 0.5},
+    "gradient_boosting": {"learning_rate": 0.05, "max_leaf_nodes": 63, "min_samples_leaf": 10,
+                          "l2_regularization": 1.0, "max_features": 0.5},
 }
 
 
-def build_search_estimators(random_state, training_cfg):
-    """A hyperparameter search (RandomizedSearchCV) per model type, each trying
-    config `search_iter` settings from its parameter grid with `cv_folds`-fold
-    cross-validation, scored by RMSE."""
+def make_model(model_name, params=None, random_state=0):
+    """An unfitted model of type `model_name` with fixed settings (default:
+    DEFAULT_PARAMS), using every CPU core."""
+    if model_name not in DEFAULT_PARAMS:
+        raise ValueError(f"no fixed-settings model for {model_name!r}, expected one of {list(DEFAULT_PARAMS)}")
+    params = DEFAULT_PARAMS[model_name] if params is None else params
+    if model_name == "random_forest":
+        return RandomForestRegressor(random_state=random_state, n_jobs=-1, **params)
+    if model_name == "gradient_boosting":
+        return HistGradientBoostingRegressor(random_state=random_state, **GRADIENT_BOOSTING_BASE, **params)
+    raise AssertionError("unreachable")
+
+
+def build_search_estimators(random_state, training_cfg, model_types=None):
+    """A hyperparameter search (RandomizedSearchCV) per model type in `model_types`
+    (default: MODEL_TYPES), each trying config `search_iter` settings from its
+    parameter grid with `cv_folds`-fold cross-validation, scored by RMSE. xgboost is
+    only imported when it is asked for, so it doesn't have to be installed otherwise."""
+    model_types = MODEL_TYPES if model_types is None else model_types
     # n_jobs=1 on each base estimator, n_jobs=-1 on the search itself: parallelizes across
     # search candidates/CV folds (separate worker processes) instead of nesting parallelism
     # inside each fit. Also required for xgboost specifically - on this xgboost 3.4.1 /
@@ -160,16 +204,26 @@ def build_search_estimators(random_state, training_cfg):
         n_iter=training_cfg["search_iter"], cv=training_cfg["cv_folds"],
         scoring="neg_root_mean_squared_error", random_state=random_state, n_jobs=-1, refit=True,
     )
-    return {
-        "random_forest": RandomizedSearchCV(
+    searches = {}
+    if "random_forest" in model_types:
+        searches["random_forest"] = RandomizedSearchCV(
             RandomForestRegressor(random_state=random_state, n_jobs=1),
             RANDOM_FOREST_PARAM_DISTRIBUTIONS, **search_kwargs,
-        ),
-        "xgboost": RandomizedSearchCV(
+        )
+    if "gradient_boosting" in model_types:
+        # sklearn limits each search worker's threads, so this doesn't oversubscribe the CPU
+        searches["gradient_boosting"] = RandomizedSearchCV(
+            HistGradientBoostingRegressor(random_state=random_state, **GRADIENT_BOOSTING_BASE),
+            GRADIENT_BOOSTING_PARAM_DISTRIBUTIONS, **search_kwargs,
+        )
+    if "xgboost" in model_types:
+        from xgboost import XGBRegressor
+
+        searches["xgboost"] = RandomizedSearchCV(
             XGBRegressor(random_state=random_state, n_jobs=1, tree_method="approx"),
             XGBOOST_PARAM_DISTRIBUTIONS, **search_kwargs,
-        ),
-    }
+        )
+    return searches
 
 
 def train_models(train, test, training_cfg):

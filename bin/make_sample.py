@@ -35,7 +35,7 @@ def main():
 
     cfg = load_config()
     df = read_dataframe(resolve_path(cfg, "features_data"), "properties_features.csv")
-    df = df.drop(columns=PRIVATE_COLUMNS)
+    df = df.drop(columns=PRIVATE_COLUMNS, errors="ignore")  # situs_zip is already dropped in cleaning
 
     sample = df.sample(SAMPLE_SIZE, random_state=cfg["training"]["random_state"]).drop(columns=["parcel_id"])
     save_dataframe(sample, os.path.join(cfg["paths"]["root"], "data", "sample"), "properties_sample.csv")

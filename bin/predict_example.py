@@ -1,13 +1,17 @@
-"""Estimate the assessed value of one example house.
+"""Estimate the assessed value of one house.
 
-By default it uses the full trained models in output/models/ (from training.py, or
-downloaded from the project's Google Drive). With --demo it uses the small model
-bin/quick_train.py saves to output/models/demo/, so it works right after the
-get-started demo without downloading anything.
+By default it estimates predict.EXAMPLE_HOUSE (edit that dict in src/components/predict.py
+to try a different house) with the full trained models in output/models/ (from
+training.py, or downloaded from the project's Google Drive). With --parcel it uses a
+real house from the feature table instead, with all 20 features filled in and its actual
+assessed value shown for comparison. With --demo it uses the small model
+bin/quick_train.py saves to output/models/demo/, so it works right after the get-started
+demo without downloading anything.
 
 Usage (from the repository root):
-    uv run python bin/predict_example.py           # full models
-    uv run python bin/predict_example.py --demo    # demo model from quick_train.py
+    uv run python bin/predict_example.py                     # the example house, full models
+    uv run python bin/predict_example.py --parcel 22339119   # a real house by parcel id
+    uv run python bin/predict_example.py --demo              # demo model from quick_train.py
 """
 
 import argparse
@@ -16,56 +20,75 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.components import predict
+import pandas as pd
 
-# Feature names and meanings are listed in the README (Feature engineering section).
-# Any feature left out is filled with a typical value, as in training.
-EXAMPLE_HOUSE = {
-    "land_use_class": "single_family",
-    "area": "CHARLOTTE_1",
-    "acreage": 0.46,
-    "year_built": 1950,
-    "heated_area": 1017,
-    "bedrooms": 2,
-    "bathrooms": 1,
-    "latitude": 35.3339,
-    "longitude": -80.8713,
-    "property_age": 76,
-    "neighborhood_median_price_per_sqft": 161.3,
-    "neighborhood_sale_count": 46,
-    "price_momentum": 0.2,
-    "education_nearest_miles": 0.5,
-    "places_count": 6000,
-    "health_care_share": 0.06,
-    "activity_share": 0.03,
-    "emergency_fire_miles": 1.2,
-    "emergency_police_miles": 2.0,
-    "emergency_medical_miles": 2.5,
-}
+from src.components import predict
+from src.components.training import FEATURE_SETS, TARGET
+from src.utils.common import resolve_path
+from src.utils.load_config import load_config
+
+
+def describe(house):
+    """One line summing up a house, built from its own values."""
+    def fmt(key, text):
+        value = house.get(key)
+        return text.format(value) if value is not None and not pd.isna(value) else None
+
+    parts = [
+        fmt("land_use_class", "{}"),
+        fmt("bedrooms", "{:g} bed"),
+        fmt("bathrooms", "{:g} bath"),
+        fmt("heated_area", "{:,.0f} sq ft"),
+        fmt("year_built", "built {:.0f}"),
+        fmt("area", "{}"),
+    ]
+    return ", ".join(p for p in parts if p)
+
+
+def load_parcel(parcel_id):
+    """(features dict, actual assessed value) of one house in the feature table."""
+    path = os.path.join(resolve_path(load_config(), "features_data"), "properties_features.csv")
+    if not os.path.exists(path):
+        sys.exit(f"{path} not found: download the feature table (see README, Full data)")
+    columns = sorted(set(FEATURE_SETS["with_neighborhood_price"]) | {"parcel_id", TARGET})
+    table = pd.read_csv(path, usecols=columns)
+    rows = table[table["parcel_id"] == parcel_id]
+    if rows.empty:
+        sys.exit(f"parcel {parcel_id} is not in {path}")
+    row = rows.iloc[0]
+    return row.drop(["parcel_id", TARGET]).to_dict(), float(row[TARGET])
 
 
 def main():
-    """Print the example house's estimate from the full models, or the demo model with --demo."""
+    """Print one house's estimate from every trained model."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--demo", action="store_true", help="use the demo model from bin/quick_train.py")
+    parser.add_argument("--parcel", type=float, help="estimate this real house from the feature table")
     args = parser.parse_args()
 
-    if args.demo:
-        # predict.load_model reads from the configured models folder, so point it at demo/.
-        original = predict.load_artifact
-        predict.load_artifact = lambda path, filename: original(path + "demo/", filename)
-        feature_sets = ["with_neighborhood_price"]
-    else:
-        feature_sets = list(predict.FEATURE_SETS)
+    models_dir = "demo/" if args.demo else ""
+    feature_sets = ["with_neighborhood_price"] if args.demo else list(predict.FEATURE_SETS)
+    house, actual = (load_parcel(args.parcel) if args.parcel else (predict.EXAMPLE_HOUSE, None))
 
-    print("Example house: 2 bed, 1 bath, 1,017 sq ft, built 1950, CHARLOTTE_1")
+    print(f"House: {describe(house)}")
+    if actual is not None:
+        print(f"  actual assessed value: ${actual:,.0f}")
+    found = 0
     for feature_set in feature_sets:
-        try:
-            value = predict.predict_total_value(EXAMPLE_HOUSE, feature_set=feature_set)
-        except FileNotFoundError:
-            hint = "run bin/quick_train.py first" if args.demo else "download the models (see README) or use --demo"
-            sys.exit(f"model files not found: {hint}")
-        print(f"  {feature_set}: ${value:,.0f}")
+        for model_name in predict.MODEL_TYPES:
+            try:
+                value = predict.predict_total_value(
+                    house, feature_set=feature_set, model_name=model_name, models_dir=models_dir,
+                )
+            except FileNotFoundError:
+                print(f"  {feature_set} {model_name}: not trained yet")
+                continue
+            found += 1
+            error = f"  ({value / actual - 1:+.1%})" if actual else ""
+            print(f"  {feature_set} {model_name}: ${value:,.0f}{error}")
+    if not found:
+        hint = "run bin/quick_train.py first" if args.demo else "download the models (see README) or use --demo"
+        sys.exit(f"model files not found: {hint}")
 
 
 if __name__ == "__main__":

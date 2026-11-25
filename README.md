@@ -10,9 +10,11 @@ price.
 **Team:** Tam Khong, Eric Toan, Ethan Wan
 
 - [Installation](#installation)
-- [Get started: train a demo model in under a minute](#get-started-train-a-demo-model-in-under-a-minute)
+- [Get started: train demo models in under a minute](#get-started-train-demo-models-in-under-a-minute)
 - [Full data and trained models](#full-data-and-trained-models)
 - [Example code (`bin/`)](#example-code-bin)
+- [Is the model reliable? (analysis)](#is-the-model-reliable-analysis)
+- [Tests](#tests)
 - [Contact](#contact)
 - [License](#license)
 - [Use of AI tools](#use-of-ai-tools)
@@ -28,14 +30,14 @@ you download the full models.
 | Library | Used for |
 |---|---|
 | `pandas`, `numpy` | loading and transforming the property tables |
-| `scikit-learn` | preprocessing, random forest models, metrics, nearest-neighbor lookups |
-| `xgboost` | alternative model type (kept in `training.py`, currently switched off) |
+| `scikit-learn` | preprocessing, random forest and gradient boosting models, metrics, nearest-neighbor lookups |
 | `geopandas` | reading the Overture Maps places file (GeoParquet) |
 | `overturemaps` | command-line tool that downloads the places data |
 | `pyyaml` | reading `config/config.yaml` |
 | `requests` | ArcGIS downloads for other counties (currently switched off) |
-| `matplotlib`, `seaborn`, `ipykernel` | notebooks and figures |
 | `joblib` | saving and loading models (comes with scikit-learn) |
+| `matplotlib`, `seaborn`, `ipykernel`, `pytest` | notebooks, figures and tests (development group, installed by `uv sync` by default) |
+| `xgboost` | optional: only if XGBoost is switched back on in `training.py`. Install with `uv sync --extra xgboost` |
 
 **Option A: with [uv](https://docs.astral.sh/uv/) (recommended).** It reads
 `uv.lock` and installs the exact versions we used.
@@ -60,48 +62,61 @@ pip install -r requirements.txt
 
 With Option B, run the commands below with `python` instead of `uv run python`.
 
-## Get started: train a demo model in under a minute
+## Get started: train demo models in under a minute
 
 The repository includes a small dataset, `data/sample/properties_sample.csv`:
 10,000 randomly chosen houses from the full feature table (295,000 houses),
 with addresses, deed references and parcel IDs removed. It needs no download.
 
 ```bash
-uv run python bin/quick_train.py            # train on the sample
-uv run python bin/predict_example.py --demo # estimate one house with that model
+uv run python bin/quick_train.py            # train both model types on the sample
+uv run python bin/predict_example.py --demo # estimate one house with those models
 ```
 
-Expected output (about 5 seconds):
+Expected output (about 10 seconds):
 
 ```
 loaded 9,998 houses from the sample
 trained on 7,998 houses, tested on 2,000
-  RMSE             $98,424
-  MAE              $48,833
-  R squared        0.903
-  average error    9.3%
-saved demo model to .../output/models/demo/
+                         RMSE        MAE  R squared  avg error
+  random_forest        98,216     48,529      0.903       9.2%
+  gradient_boosting     85,594     42,021      0.926       7.9%
+saved demo models to .../output/models/demo/
 Example house: 2 bed, 1 bath, 1,017 sq ft, built 1950, CHARLOTTE_1
-  with_neighborhood_price: $217,443
+  with_neighborhood_price random_forest: $225,286
+  with_neighborhood_price gradient_boosting: $225,526
 ```
 
 The demo runs the same steps as the full training (split, neighborhood price
-features from training houses only, preprocessing, random forest on
-log(value)), with fixed settings instead of a hyperparameter search. The full
-models are more accurate (R squared 0.957, average error 5.5%) because they
-are trained on 30 times more houses.
+features from training houses only, preprocessing, model on log(value)), with
+fixed settings (`training.DEFAULT_PARAMS`) instead of a hyperparameter search.
+The full models are more accurate (gradient boosting reaches R squared 0.967,
+average error 5.1%) because they are trained on 30 times more houses and their
+settings are tuned.
+
+To run the whole demo in one command, including the reliability analysis on
+the sample with 2 splits (about 2 minutes):
+
+```bash
+uv run python -m src.pipeline --sample
+```
 
 ## Full data and trained models
 
 The full feature table and trained models are too large for GitHub (no file
 over 100 MB), so they are on Google Drive:
 
-**Download: [Google Drive folder](https://drive.google.com/drive/folders/1IyK-7Sx1CYXt_PqKBSZho8eg_S3ajMOv?usp=drive_link)** (about 690 MB)
+**Download: [Google Drive folder](https://drive.google.com/drive/folders/1IyK-7Sx1CYXt_PqKBSZho8eg_S3ajMOv?usp=drive_link)**
 
 | File in the Drive folder | Size | Needed for |
 |---|---|---|
-| `output/models/*.joblib` (4 files) | 590 MB | `predict`, `evaluating` |
-| `data/features/properties_features.csv` | 100 MB | `evaluating`, `training`, `finetune` |
+| `output/models/*_preprocessor.joblib` (2 files) | under 1 MB | `predict`, `evaluating` |
+| `output/models/*_gradient_boosting.joblib` (2 files, the best models) | 41 MB each | `predict`, `evaluating` |
+| `output/models/*_random_forest.joblib` (2 files, optional) | about 1 GB each | comparing with the random forest |
+| `data/features/properties_features.csv` | 100 MB | `evaluating`, `training`, `finetune`, `analysis` |
+
+The preprocessors and models must come from the same training run, so download
+them together.
 
 1. Open the link and click **Download** (top right). Google zips the folder.
    For large files it shows a "can't scan for viruses" notice; click
@@ -115,32 +130,88 @@ over 100 MB), so they are on Google Drive:
 
    ```bash
    uv run python bin/predict_example.py         # full models
-   uv run python -m src.components.evaluating   # 10 test houses, about 5.6% average error
+   uv run python bin/predict_example.py --parcel 22339119   # a real house, with its actual value
+   uv run python -m src.components.evaluating   # 10 test houses, about 6% average error
    ```
 
 The raw county file (`Cama_Table_transformed.csv`) is not shared, because it
 contains owners' names and mailing addresses. It is only needed to rebuild the
-pipeline from the start. It is the Mecklenburg County tax assessor's CAMA
-table, available from the county, and goes in `data/raw/merklenburg/`. See
+pipeline from the start. It is Mecklenburg County's
+[Tax Parcels with CAMA Data](https://maps.mecknc.gov/opendata/metadata/Tax_Parcels_with_CAMA_Data.html)
+(downloads are named `Cama_Table.csv`), from the county's
+[GIS Data Center](https://gis.mecknc.gov/data-center). Save it as
+`data/raw/merklenburg/Cama_Table_transformed.csv`. The county updates it
+regularly, so a new download gives slightly different results. See
 [Running each stage](#running-each-stage).
 
 ## Example code (`bin/`)
 
 | Script | What it does |
 |---|---|
-| [`bin/quick_train.py`](bin/quick_train.py) | Trains a demo random forest on the sample and prints its accuracy |
-| [`bin/predict_example.py`](bin/predict_example.py) | Estimates one example house; `--demo` uses the demo model |
+| [`bin/quick_train.py`](bin/quick_train.py) | Trains a demo random forest and gradient boosting model on the sample and prints their accuracy |
+| [`bin/predict_example.py`](bin/predict_example.py) | Estimates one house with every trained model: the example house in `src/components/predict.py`, or a real one with `--parcel <id>`; `--demo` uses the demo models |
 | [`bin/make_sample.py`](bin/make_sample.py) | Rebuilds the sample (and the shareable full table) from the feature table |
 
 Run them from the repository root, for example
 `uv run python bin/quick_train.py`.
+
+## Is the model reliable? (analysis)
+
+`src/components/analysis.py` checks the model in ways one test score can't. It
+writes every table to `reports/analysis/` and puts them together in
+`reports/analysis/report.md`.
+
+```bash
+uv run python -m src.components.analysis --sample --splits 2   # quick check on the sample, about 2 minutes
+uv run python -m src.components.analysis --splits 2            # full feature table, 25 models, a few hours
+uv run python -m src.components.analysis                       # full feature table, 5 splits, 61 models, several hours
+```
+
+Results on the full feature table (294,983 houses, 5 random 80/20 splits,
+mean ± standard deviation; the full report is
+[`reports/analysis/report.md`](reports/analysis/report.md)):
+
+| Model | MAE | Average error | R squared |
+|---|---|---|---|
+| Baseline: heated area × neighborhood $/sq ft | $78,565 ± 989 | 16.7% ± 0.1% | 0.82 ± 0.03 |
+| `with_neighborhood_price` random forest | $30,132 ± 625 | 5.5% ± 0.0% | 0.93 ± 0.03 |
+| `with_neighborhood_price` **gradient boosting** | **$28,078 ± 613** | **5.2% ± 0.0%** | **0.95 ± 0.03** |
+| `without_neighborhood_price` random forest | $31,602 ± 672 | 5.7% ± 0.1% | 0.93 ± 0.03 |
+| `without_neighborhood_price` gradient boosting | $28,953 ± 564 | 5.3% ± 0.0% | 0.95 ± 0.04 |
+
+- **Better than the baseline:** the best model's MAE is 64% lower than the
+  baseline's, so the features add real information beyond size × neighborhood
+  price.
+- **Gradient boosting beats the random forest** on every split. A random
+  forest averages similar houses, which pulls estimates toward the middle;
+  boosting adds corrections instead, so it handles the ends better.
+- **Stable:** the average error is the same on every split (5.1–5.2%). R squared
+  and RMSE vary more, because a few very expensive houses with large errors
+  dominate both: on one split R squared fell to 0.89 while the average error
+  stayed at 5.2%. Report average error and MAE first.
+- **Where it is weakest:** the cheapest fifth of houses (6.4% average error) and
+  the most expensive fifth (6.9%, 77% of houses within 10%), against about 4%
+  in between; areas CHARLOTTE_7, CHARLOTTE_6 and CHARLOTTE_4 (about 7.5%);
+  single-family houses (5.6%) more than condos (4.2%) and townhouses (3.0%).
+- **Feature groups** (decision rule, gradient boosting without the neighborhood
+  price): the house itself (+114% MAE when left out), the neighborhood price
+  trend (+4.9%) and location (+2.4%) matter in all 5 splits. Education, health
+  care, emergency access, activity and density each add 1% or less: once
+  location is known, they add little of their own.
+- **Same house, different area:** one typical house is estimated at $719,062 in
+  CHARLOTTE_7 and $326,537 in CHARLOTTE_4, 2.2 times as much.
+
+These numbers come from fixed-setting models, so they are slightly below the
+tuned models from `training.py` (5.1% average error for gradient boosting).
+The sample gives higher errors (about 8%), because 10,000 houses are too few to
+learn as much.
 
 ## Contact
 
 Questions about the project:
 
 - Tam Khong: [tkhong@charlotte.edu](mailto:tkhong@charlotte.edu)
-- Eric Toan: [ntoan@charlotte.edu](mailto:ntoan@charlotte.edu)
+- Eric Toan: [ntoan@charlotte.edu](mailto:ntoan@charlotte.edu) or [ngdtoan58@gmail.com](mailto:ngdtoan58@gmail.com)
 - Ethan Wan: [ewan@charlotte.edu](mailto:ewan@charlotte.edu)
 
 You can also [open an issue](https://github.com/tkhong-gif/house-price-prediction/issues)
@@ -155,7 +226,9 @@ This project is released under the MIT License. See [LICENSE](LICENSE).
 We used Claude (Anthropic) as a coding assistant to help organize the
 repository, add function comments, draft parts of this README (installation,
 get started, data download and contact sections) and check for mistakes and
-personal data. The data pipeline, features and models are our own work. All
+personal data. Claude also drafted the analysis stage (`analysis.py`), the
+pipeline runner (`src/pipeline/run_pipeline.py`) and the tests, and removed
+unused files and dependencies. The data pipeline, features and models are our own work. All
 AI-assisted changes were reviewed and tested by the authors.
 
 ## Research question
@@ -210,27 +283,38 @@ as described below.
 | 2. Clean and assign areas | `src/components/data_preprocessing.py` | Implemented |
 | 3. Feature engineering | `src/components/feature_engineering.py` | Implemented. School quality not yet added. |
 | 4. Training | `src/components/training.py` | Implemented |
-| 5. Evaluation | `src/components/evaluating.py` | 10-house validation implemented. Other planned tests not yet complete. |
+| 5. Evaluation | `src/components/evaluating.py` | 10-house validation implemented. Baseline, repeated splits and feature-group tests are in `analysis.py` |
 | 5b. Retrain best model | `src/components/finetune.py` | Implemented |
 | 6. Prediction | `src/components/predict.py` | Implemented |
-| Pipeline orchestration | `src/pipeline/` | Not yet complete (empty package) |
-| API | `api/main.py` | Not yet complete (empty file) |
-| Docker | `Dockerfile` | Not yet complete (IDE placeholder that runs `top`) |
+| 7. Reliability and feature-group analysis | `src/components/analysis.py` | Implemented |
+| Pipeline orchestration | `src/pipeline/run_pipeline.py` | Implemented |
+| Tests | `test/` | Implemented (`uv run pytest`), run on every push by GitHub Actions |
 
 ## Current models
 
-Only random forest is in use for now (`training.MODEL_TYPES`). It scored
-better than XGBoost on both feature sets in the last full training run. The
-XGBoost setup is kept in `training.py` and can be switched back on.
+Two model types are in use (`training.MODEL_TYPES`): random forest and
+gradient boosting (scikit-learn's `HistGradientBoostingRegressor`). All 4
+models (2 feature sets × 2 model types) come from one full training run with
+every current feature and tuned settings
+([`reports/training_metrics.csv`](reports/training_metrics.csv)). Test set:
+about 59,000 houses the models never saw.
 
-| File in `output/models/` | State | Test set (about 59,000 houses) |
-|---|---|---|
-| `with_neighborhood_price_random_forest` (default) | Retrained by `finetune.py`, uses `price_momentum` | RMSE $74,390, MAE $29,571, R squared 0.957, average error 5.50% |
-| `without_neighborhood_price_random_forest` | From the last full training run, ignores `price_momentum` | RMSE $76,400, MAE $31,269, R squared 0.955, average error 5.81% |
-| `*_xgboost` | Not included. XGBoost is switched off (see `training.MODEL_TYPES`), so no XGBoost model files are saved or shared. | |
+| Model in `output/models/` | RMSE | MAE | R squared | Average error |
+|---|---|---|---|---|
+| `with_neighborhood_price_gradient_boosting` (**best, the default**) | $65,114 | $27,309 | 0.967 | 5.08% |
+| `without_neighborhood_price_gradient_boosting` | $65,975 | $27,998 | 0.966 | 5.21% |
+| `with_neighborhood_price_random_forest` | $74,603 | $29,611 | 0.957 | 5.51% |
+| `without_neighborhood_price_random_forest` | $75,908 | $31,257 | 0.955 | 5.81% |
 
-A full training run (`uv run python -m src.components.training`) retrains both
-random forests with every current feature and tunes their settings again.
+The tuned gradient boosting settings
+([`reports/best_hyperparameters.json`](reports/best_hyperparameters.json)) are
+learning rate 0.03, 127 leaves per tree, at least 10 houses per leaf and half
+of the features per split, with the number of trees set by early stopping. A
+gradient boosting file is 41 MB, against about 1 GB for a random forest.
+
+`predict.py` uses whichever model scored best in `training_metrics.csv`, so
+gradient boosting is the default with no code change. XGBoost is switched off;
+gradient boosting is the same method without the extra dependency.
 
 ## Data flow
 
@@ -252,12 +336,16 @@ feature_engineering.py
         |
         v
 training.py
-  2 feature sets x random forest    -> output/models/*.joblib
+  2 feature sets x 2 model types    -> output/models/*.joblib
   metrics                           -> reports/training_metrics.csv,
                                        reports/best_hyperparameters.json
         |
         v
 predict.py                          (loads the saved models)
+
+analysis.py                         (trains its own fixed-setting forests)
+  baseline, repeated splits,
+  error breakdowns, feature groups  -> reports/analysis/report.md
 ```
 
 ## Setup
@@ -267,7 +355,19 @@ See [Installation](#installation). `overturemaps` is used as a command-line tool
 
 ## Running each stage
 
-Run from the repository root:
+Run every stage in order with the pipeline runner, from the repository root:
+
+```bash
+uv run python -m src.pipeline                  # ingest -> preprocess -> features -> train -> evaluate -> analyze
+uv run python -m src.pipeline --from train     # resume from a stage
+uv run python -m src.pipeline --only analyze   # one or more stages (comma-separated); finetune runs only this way
+uv run python -m src.pipeline --sample         # the no-download demo
+```
+
+The runner checks every stage's input files before starting, so a missing
+download fails immediately with a hint instead of halfway through training.
+
+Or run each stage on its own:
 
 ```bash
 uv run python -m src.components.data_ingestor        # download places data (skipped if already downloaded)
@@ -277,12 +377,13 @@ uv run python -m src.components.training             # train models
 uv run python -m src.components.evaluating           # validate 10 houses
 uv run python -m src.components.finetune             # retrain the best model on current features
 uv run python -m src.components.predict              # example estimates
+uv run python -m src.components.analysis             # reliability and feature-group analysis
 ```
 
 Each stage reads its inputs from the previous stage's output files, so they
 must be run in order the first time. Preprocessing and feature engineering
 each take about 20 seconds. Training takes much longer, because it runs a
-hyperparameter search for 2 random forests on about 295,000 houses.
+hyperparameter search for 4 models on about 295,000 houses.
 `finetune.py`, which retrains one model with known settings, takes about a
 minute.
 
@@ -379,7 +480,6 @@ What is currently switched off:
 - The ArcGIS downloads for other counties (`ingest()` and `_fetch_all()`),
   because the project is Mecklenburg-only. They run again if the `sources`
   block in `config/config.yaml` is uncommented.
-- `health_check()`, which nothing calls.
 
 - `fetch_places(path, bbox)`: runs `overturemaps download --type=place` for the
   configured bounding box and saves the result as GeoParquet. If the file
@@ -391,8 +491,6 @@ What is currently switched off:
 - `_fetch_all(source)`: requests an ArcGIS source page by page, using
   `resultOffset` and `resultRecordCount`, until a page comes back smaller than
   the page size, and combines the pages into one response.
-- `health_check(response)`: returns whether a response has status 200. It is
-  not used anywhere.
 
 The Mecklenburg file is not downloaded by this module. It must be placed at
 `data/raw/merklenburg/Cama_Table_transformed.csv` by hand.
@@ -606,10 +704,17 @@ Trains models that estimate `total_value` (the 2023 assessed value).
 | `with_neighborhood_price` | The best estimate. Includes `neighborhood_median_price_per_sqft`. |
 | `without_neighborhood_price` | The same features without that column. The neighborhood price already contains most of the effect of location, amenities and area, so this is the model to read when asking what `area` and the accessibility features are worth. |
 
-Each set is trained with every model type in `MODEL_TYPES`. That is only
-`random_forest` for now, so 2 models are trained. `build_search_estimators`
-also defines XGBoost, which comes back by adding `"xgboost"` to
-`MODEL_TYPES`.
+Each set is trained with every model type in `MODEL_TYPES`, so 4 models are
+trained:
+
+| Model type | What it is |
+|---|---|
+| `random_forest` | Many deep trees trained independently, and their estimates averaged |
+| `gradient_boosting` | Many small trees trained one after another, each correcting the errors left by the ones before (`HistGradientBoostingRegressor`) |
+
+`build_search_estimators` also defines XGBoost, which is the same method as
+gradient boosting. It comes back by adding `"xgboost"` to `MODEL_TYPES` and
+installing it with `uv sync --extra xgboost`.
 
 **Features** (`FEATURE_COLUMNS`):
 
@@ -645,22 +750,32 @@ sales. Their neighborhood price is filled with the median.
 - `build_search_estimators`: wraps each model in `RandomizedSearchCV`, which
   tries `search_iter` random hyperparameter combinations with `cv_folds`
   cross-validation folds and picks the one with the lowest RMSE. Random forest
-  depth is capped to keep model files a reasonable size. XGBoost uses
+  depth is capped to keep model files a reasonable size. Gradient boosting
+  stops adding trees by itself (early stopping on 10% of the training rows,
+  `GRADIENT_BOOSTING_BASE`), so its number of trees is not searched; its grid
+  (`GRADIENT_BOOSTING_PARAM_DISTRIBUTIONS`) is centred on the best settings
+  from a 30-candidate search on the sample. The XGBoost grid makes sure every
+  combination has enough trees for its learning rate (0.01 × 100 trees barely
+  learns anything: 20.9% average error on the sample). XGBoost uses
   `tree_method="approx"` and `n_jobs=1` because other settings crashed on this
   Python / XGBoost / macOS combination. Parallelism is set on the search
   instead.
 - `train_models`: for each feature set, fits the preprocessor on the training
   rows, trains on `log(1 + total_value)`, converts predictions back to
   dollars, and records RMSE, MAE, R squared and MAPE on the test set.
+- `make_model(model_name, params)`: a model with fixed settings
+  (`DEFAULT_PARAMS`), for `bin/quick_train.py` and `analysis.py`, which skip
+  the search.
 - `run()` saves:
   - `output/models/<feature_set>_preprocessor.joblib`
   - `output/models/<feature_set>_<model>.joblib`
   - `reports/training_metrics.csv`
   - `reports/best_hyperparameters.json`
 
-Models trained before `price_momentum` was added still load, but they ignore
-the column. Retrain to use it. Each random forest file is about 1.1 GB, so
-loading one takes a few seconds.
+Each full random forest file is about 1 GB, so loading one takes a few
+seconds. Gradient boosting files are much smaller (41 MB for a full model).
+A full training run took about 2¼ hours on an 8-thread laptop; it prints
+nothing until it finishes and saves the models only at the end.
 
 ### `evaluating.py`
 
@@ -692,19 +807,48 @@ rerunning feature engineering, retrain before validating.
 Ten houses show how the models behave on individual cases. They are too few to
 compare models; use `reports/training_metrics.csv` for that.
 
-**Not yet complete.** Planned additions:
+The baseline, repeated splits, drop-column test, noise column and same-house
+comparison are in `analysis.py` (below).
 
-- A drop-column test for each accessibility group: train without it and
-  compare test error on the same split, repeated over 5 splits.
-- A random noise column as a baseline for feature importance.
-- A simple baseline model (`heated_area x neighborhood median price per sq
-  ft`) to compare the models against.
-- The same-house comparison across areas: predict one house's value with its
-  `area` and location features set to each area in turn.
+### `analysis.py`
 
-The rule for deciding whether a feature matters should be written down before
-looking at results. For example: removing it raises test MAE by at least 1% in
-most splits, and it ranks above the noise column.
+Trains its own models with fixed settings (`training.DEFAULT_PARAMS`), so it
+needs only the feature table (or the sample with `--sample`), not the trained
+models. Every model type is scored on both feature sets. The error breakdowns
+use `BEST_MODEL` (gradient boosting with the neighborhood price), and the
+feature-group tests and same-house comparison use `GROUP_MODEL` (gradient
+boosting) on the `without_neighborhood_price` feature set.
+
+- `baseline_predict`: heated area × neighborhood median price per sq ft,
+  scaled by one factor fitted on the training rows (sale prices are mostly
+  older and lower than the 2023 assessment). A missing neighborhood price uses
+  the area's median.
+- `repeated_splits`: scores the baseline, both feature sets and the
+  drop-column models on `--splits` random 80/20 splits (default 5). Split 0 is
+  the split `training.py` uses. Sale-derived features are recomputed from each
+  split's training rows.
+- `error_table`: MAE, average error, median error and the share of houses
+  within 10%, by area, price band (fifths of assessed value) and land use.
+- **Feature groups** (`FEATURE_GROUPS`, on the `without_neighborhood_price`
+  feature set): house, location, neighborhood trend, education, health care,
+  emergency, activity and density.
+  - `drop_column_results`: how much test MAE rises when the group is left
+    out, per split.
+  - `group_importance`: a model trained with an extra column of random
+    numbers (`noise`). Each group's columns are shuffled together on 5,000
+    test houses, and the rise in MAE is its importance.
+  - `verdicts`: the decision rule, fixed before looking at results. A group
+    matters if dropping it raises MAE by at least 1%
+    (`MATTERS_MIN_MAE_INCREASE`) in more than half of the splits, and
+    shuffling it hurts more than shuffling the noise column.
+  - Groups that carry overlapping information (location and accessibility)
+    can each look small when dropped alone, because the others make up for
+    it.
+- `same_house_by_area`: one typical single-family house (training medians of
+  size, rooms, age and lot), estimated with each area's median location and
+  accessibility values.
+- `--skip-drop-column` skips the feature-group tests, and `--splits` sets the
+  number of splits, for faster runs.
 
 ### `finetune.py`
 
@@ -750,7 +894,7 @@ validates it. Use it after adding a feature, instead of a full training run.
 
 Estimates `total_value` for one house.
 
-- `predict_total_value(features, feature_set="with_neighborhood_price", model_name="random_forest")`:
+- `predict_total_value(features, feature_set="with_neighborhood_price", model_name=None)`:
   `features` is a dictionary of feature names to values. It returns the
   estimate in dollars.
 - Any feature not given is filled the same way as in training (median or most
@@ -760,8 +904,11 @@ Estimates `total_value` for one house.
 - `feature_set` chooses between the two trained feature sets.
   `with_neighborhood_price` is the default, because it is the one meant for
   estimates. An unknown name raises `ValueError`.
-- `model_name` must be a type in `training.MODEL_TYPES` (only
-  `random_forest` for now); anything else raises `ValueError`.
+- `model_name` must be a type in `training.MODEL_TYPES` (`random_forest` or
+  `gradient_boosting`); anything else raises `ValueError`. Left as `None`, it is
+  chosen by `best_model_name`: the trained model with the lowest test RMSE in
+  `reports/training_metrics.csv`, or, without that file, gradient boosting if
+  it is trained and the random forest otherwise.
 - `load_model(feature_set, model_name)` returns the preprocessor and model.
   `load_artifact` caches loaded files, so repeated calls do not reload from
   disk.
@@ -770,8 +917,34 @@ Estimates `total_value` for one house.
 
 ## src/pipeline
 
-Not yet complete. Contains only an empty `__init__.py`. Each stage is
-currently run on its own with `python -m`.
+`run_pipeline.py` runs the stages in order (`python -m src.pipeline`, see
+[Running each stage](#running-each-stage)).
+
+- `STAGES`: each stage's function, its input files and a hint for when they
+  are missing. `finetune` is not in the default order (`DEFAULT_STAGES`);
+  it is only useful after adding a feature.
+- `select_stages`: the stages for `--from` / `--only`.
+- `run`: checks every stage's inputs before the first stage starts (skipping
+  inputs an earlier stage in the same run will write), then runs each stage
+  and prints its duration.
+- `run_sample`: the `--sample` demo: `quick_train`, one estimate, and the
+  analysis on the sample.
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+The tests use small hand-made tables and the sample, so they need no download
+and take about 10 seconds. GitHub Actions runs them, plus the get-started demo,
+on every push (`.github/workflows/tests.yml`).
+
+| File | Covers |
+|---|---|
+| `test/test_preprocessing.py` | land-use mapping, outlier mask, owner filter, cleaning rules, `median_split`, `assign_area` |
+| `test/test_features.py` | distances, place counts, emergency-department labelling, price per sq ft, neighborhood aggregates, price momentum |
+| `test/test_models.py` | the split recomputes aggregates from training rows only, preprocessing with missing values, model vs baseline, save/load/predict round trip, analysis tables, pipeline stage selection |
 
 ## Known issues
 
@@ -793,29 +966,34 @@ currently run on its own with `python -m`.
   each year (see `feature_engineering.py`).
 - Four towns (Matthews, Cornelius, Davidson, Pineville) have fewer than 10,000
   houses, so results for them are less reliable than for the other areas.
-- The two random forests are out of step until the next full training run:
-  only the default one uses `price_momentum` (see "Current models").
+- The target is the county's assessed value, which can lag the market. For
+  example, parcel 19516125 (Mint Hill) was assessed at $284,600, the model
+  estimates $302,734, and it sold for $323,000 in July 2023.
+- Parks are counted inside `activity_share` (the share of parks, gyms,
+  museums and similar places within 5 miles), not as a distance of their own,
+  so the analysis does not test parks separately.
 - Parcel IDs are stored as the county's `parcelid`, which has no leading
   zeros (`733316`). The county's own lookup uses 8 digits (`00733316`), so pad
   with zeros when checking a parcel there.
-- `config/schema.yaml` is empty, and `Dockerfile` is an IDE placeholder.
+- `property_age` and the 10-year window for `arms_length_sale` are measured
+  from the current year, so rebuilding the features in a later year shifts
+  them, while the target stays the 2023 assessment. Retrain after rebuilding.
 
 ## Repository layout
 
 ```
 bin/              example scripts: quick demo training and prediction
-src/components/   pipeline stages
+src/components/   pipeline stages, including analysis.py
 src/utils/        config loading and CSV helpers
-src/pipeline/     not yet complete
-api/              not yet complete (empty main.py)
-config/           config.yaml, schema.yaml (empty)
+src/pipeline/     run_pipeline.py: runs the stages in order
+config/           config.yaml
 data/raw/         downloaded and hand-placed source files
 data/processed/   cleaned properties and places map
 data/features/    feature table used for training
 data/sample/      10,000-house sample for the get-started demo (in the repo)
 notebooks/        exploration notebooks
 output/models/    trained preprocessors and models (finetuned/ holds retrained ones, demo/ the quick_train.py model)
-reports/          training metrics, chosen hyperparameters, house validation
-test/             no tests yet
-Dockerfile        placeholder, not yet complete
+reports/          training metrics, chosen hyperparameters, house validation, analysis/
+test/             pytest tests (uv run pytest)
+.github/          GitHub Actions workflow that runs the tests
 ```

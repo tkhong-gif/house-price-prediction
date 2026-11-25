@@ -1,0 +1,28 @@
+{
+  "with_neighborhood_price__random_forest": {
+    "n_estimators": 150,
+    "min_samples_leaf": 1,
+    "max_features": 1.0,
+    "max_depth": 20
+  },
+  "with_neighborhood_price__gradient_boosting": {
+    "min_samples_leaf": 10,
+    "max_leaf_nodes": 127,
+    "max_features": 0.5,
+    "learning_rate": 0.03,
+    "l2_regularization": 0.0
+  },
+  "without_neighborhood_price__random_forest": {
+    "n_estimators": 150,
+    "min_samples_leaf": 1,
+    "max_features": 1.0,
+    "max_depth": 20
+  },
+  "without_neighborhood_price__gradient_boosting": {
+    "min_samples_leaf": 10,
+    "max_leaf_nodes": 127,
+    "max_features": 0.5,
+    "learning_rate": 0.03,
+    "l2_regularization": 0.0
+  }
+}

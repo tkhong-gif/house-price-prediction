@@ -1,4 +1,4 @@
-"""Merge the four raw county sources into one schema, then clean the result.
+"""Stage 2: map the raw county records onto one schema, clean them and assign areas.
 
 The loaders/mappers below are promoted from `notebooks/eda.ipynb`, where they were
 validated against the raw data (county identification, shared-schema mapping, Wake's
@@ -14,7 +14,6 @@ each parcel gets an `area` (see assign_area) so houses can be compared across to
 and parts of Charlotte.
 """
 
-import json
 import re
 from datetime import datetime
 import geopandas as gpd
@@ -261,12 +260,10 @@ def clean_properties(df):
     bad_heated_area = df["heated_area"].notna() & ~df["heated_area"].between(MIN_HEATED_AREA, MAX_HEATED_AREA)
     df = df[~bad_heated_area]
 
-    # Individual-owner filter needs owner_name, so runs before it (and situs_zip, unused
-    # downstream) are dropped.
+    # The individual-owner filter needs owner_name, so it runs before owner_name (and
+    # situs_zip, which is always empty for Mecklenburg) are dropped.
     df = df[is_individual_owner(df["owner_name"])].copy()
-    df = df.drop(columns=["owner_name",
-                          # "situs_zip"
-                          ])
+    df = df.drop(columns=["owner_name", "situs_zip"])
 
     return df
 

@@ -17,3 +17,8 @@ data/*
 !data/sample/
 output/*
 reports/*
+# results without personal data are shared; validation_houses.csv (parcel IDs) is not
+!reports/training_metrics.csv
+!reports/best_hyperparameters.json
+!reports/analysis/
+!reports/analysis_sample/

@@ -35,25 +35,25 @@ class data_ingestor:
                 json.dump(payload, f, indent=2)
             print(f"{source}: {len(payload['features'])} features -> {out_file}")
 
-    def fetch_places(self,_,bbox):
+    def fetch_places(self, path, bbox):
         """Download Overture Maps places inside `bbox` ("min_lon,min_lat,max_lon,max_lat")
         to the GeoParquet file at the given path, using the overturemaps command-line
         tool. Skipped if the file already exists. Returns the file path."""
-        _ = Path(_)
-        if _.exists():
-            return _
-        _.parent.mkdir(parents=True, exist_ok=True)
+        path = Path(path)
+        if path.exists():
+            return path
+        path.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run([
             "overturemaps", "download",
             "--type=place",
             f"--bbox={bbox}",
             "-f", "geoparquet",
-            "-o", str(_),
+            "-o", str(path),
             # the STAC catalog can lag a new release and report no data for the bbox;
             # reading the S3 dataset directly doesn't depend on it
             "--no-stac",
         ], check=True)
-        return _
+        return path
 
     def _fetch_all(self, source):
         """Page through an ArcGIS FeatureServer `query` endpoint (resultOffset/resultRecordCount)
@@ -81,10 +81,6 @@ class data_ingestor:
         meta["exceededTransferLimit"] = False
 
         return meta
-
-    def health_check(self, response):
-        """True if an HTTP response succeeded (status 200). Not currently used."""
-        return response.status_code == 200
 
 
 if __name__ == "__main__":
