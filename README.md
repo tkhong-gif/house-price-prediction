@@ -139,8 +139,11 @@ contains owners' names and mailing addresses. It is only needed to rebuild the
 pipeline from the start. It is Mecklenburg County's
 [Tax Parcels with CAMA Data](https://maps.mecknc.gov/opendata/metadata/Tax_Parcels_with_CAMA_Data.html)
 (downloads are named `Cama_Table.csv`), from the county's
-[GIS Data Center](https://gis.mecknc.gov/data-center). Save it as
-`data/raw/merklenburg/Cama_Table_transformed.csv`. The county updates it
+[GIS Data Center](https://gis.mecknc.gov/data-center). The `ingest` stage
+downloads it from the county's ArcGIS service
+(`TaxParcel_camadata`, the `mecklenburg` entry in `config/config.yaml`) to
+`data/raw/merklenburg/Cama_Table_transformed.csv`; a downloaded `Cama_Table.csv`
+can also be saved there under that name. The county updates it
 regularly, so a new download gives slightly different results. See
 [Running each stage](#running-each-stage).
 
@@ -321,7 +324,7 @@ gradient boosting is the same method without the extra dependency.
 ```
 data_ingestor.py
   Overture Maps places     -> data/raw/NC parquet/nc_places.parquet
-  (the Mecklenburg CSV is placed in data/raw/merklenburg/ by hand)
+  Mecklenburg CAMA (county ArcGIS) -> data/raw/merklenburg/Cama_Table_transformed.csv
         |
         v
 data_preprocessing.py
@@ -426,6 +429,8 @@ All paths and settings live in `config/config.yaml`:
 
 - `paths`: directories for raw data, processed data, features, reports and
   models. All are relative to the project root.
+- `mecklenburg`: the county's ArcGIS service for the CAMA parcel table, which
+  the `ingest` stage downloads, and how many rows to request at a time.
 - `sources` (commented out), `params`: ArcGIS download settings for the other
   counties (Guilford, Buncombe). Not used while the project is
   Mecklenburg-only. Removing the `# ` from the `sources` block turns them back
@@ -481,19 +486,31 @@ What is currently switched off:
   because the project is Mecklenburg-only. They run again if the `sources`
   block in `config/config.yaml` is uncommented.
 
+- `fetch_mecklenburg(path, source_cfg)`: downloads the county's CAMA parcel
+  table from its ArcGIS service (`mecklenburg` in the config, about 450,000
+  parcels, 2,000 per request, a few minutes) and saves it as
+  `data/raw/merklenburg/Cama_Table_transformed.csv` with the county's column
+  names. Sale dates arrive as epoch milliseconds and are written as ISO dates.
+  The county's server refuses requests without a browser-like `User-Agent`, so
+  one is sent. If the file already exists, the download is skipped. The file
+  contains owner names and mailing addresses, so it is never shared.
 - `fetch_places(path, bbox)`: runs `overturemaps download --type=place` for the
   configured bounding box and saves the result as GeoParquet. If the file
   already exists, the download is skipped.
-- `ingest()`: downloads the places file with `fetch_places`, then each ArcGIS
-  source listed under `sources` in the config. The sources are commented out
-  while the project is Mecklenburg-only, so currently only the places file is
-  downloaded.
+- `ingest()`: downloads the county table with `fetch_mecklenburg` and the
+  places file with `fetch_places`, then each ArcGIS source listed under
+  `sources` in the config. The sources are commented out while the project is
+  Mecklenburg-only.
 - `_fetch_all(source)`: requests an ArcGIS source page by page, using
   `resultOffset` and `resultRecordCount`, until a page comes back smaller than
   the page size, and combines the pages into one response.
 
-The Mecklenburg file is not downloaded by this module. It must be placed at
-`data/raw/merklenburg/Cama_Table_transformed.csv` by hand.
+A copy of the county file can also be placed at
+`data/raw/merklenburg/Cama_Table_transformed.csv` by hand (for example the
+county's `Cama_Table.csv` download, renamed). `data_preprocessing` reads sale
+dates in all three formats seen so far (`SALE_DATE_FORMATS`): an Excel re-save
+(`25/05/22 0:00`), the county's CSV download (`5/25/2022 0:00:00.000`) and ISO
+dates from `fetch_mecklenburg`.
 
 ### `data_preprocessing.py`
 

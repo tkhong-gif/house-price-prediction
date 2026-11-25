@@ -6,6 +6,13 @@ paths:
   reports: reports/
   models: output/models/
 
+# Mecklenburg County's CAMA parcel data (the county's "Tax Parcels with CAMA Data"),
+# downloaded by data_ingestor.ingest() to data/raw/merklenburg/Cama_Table_transformed.csv
+# (skipped if that file is already there). About 450,000 parcels, page_size at a time.
+mecklenburg:
+  url: https://meckgis.mecklenburgcountync.gov/server/rest/services/TaxParcel_camadata/FeatureServer/0/query
+  page_size: 2000
+
 # ArcGIS sources for the other counties, used by data_ingestor.ingest(). Commented out
 # while the project is Mecklenburg-only (that county's CSV is placed by hand).
 # sources:

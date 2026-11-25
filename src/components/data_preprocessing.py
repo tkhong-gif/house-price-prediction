@@ -125,7 +125,25 @@ def load_mecklenburg(raw_path):
     )
 
 
+# Sale date formats seen in Mecklenburg files, tried in order: a copy re-saved by Excel
+# under a European locale ("25/05/22 0:00"), the county's CSV download
+# ("5/25/2022 0:00:00.000"), and ISO dates (what data_ingestor writes for the
+# county's ArcGIS service).
+SALE_DATE_FORMATS = ["%d/%m/%y %H:%M", "%m/%d/%Y %H:%M:%S.%f", "%Y-%m-%d"]
 
+
+def parse_sale_date(values):
+    """Parse sale dates written in any of SALE_DATE_FORMATS; anything else becomes NaT.
+    Each value takes the first format that fits, so the original European format
+    gives exactly the same dates as before."""
+    values = values.astype("string").str.strip()
+    parsed = pd.Series(pd.NaT, index=values.index, dtype="datetime64[ns]")
+    for fmt in SALE_DATE_FORMATS:
+        missing = parsed.isna()
+        if not missing.any():
+            break
+        parsed[missing] = pd.to_datetime(values[missing], format=fmt, errors="coerce")
+    return parsed
 
 
 def meck_to_common(df):
@@ -141,7 +159,7 @@ def meck_to_common(df):
         "situs_city": df["loccity"],
         "situs_zip": pd.NA,  # only the owner's mailing zip is present, not situs
         "sale_price": df["saleprice"],
-        "sale_date": pd.to_datetime(df["saledate"], format="%d/%m/%y %H:%M", errors="coerce"),
+        "sale_date": parse_sale_date(df["saledate"]),
         "deed_book": df["deed_book"],
         "deed_page": df["deed_page"],
         "land_value": df["totlandval"],

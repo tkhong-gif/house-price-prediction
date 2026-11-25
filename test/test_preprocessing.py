@@ -6,8 +6,15 @@ import pytest
 
 from src.components.data_preprocessing import (
     COMMON_COLUMNS, assign_area, clean_properties, is_individual_owner, median_split,
-    normalize_land_use, sale_price_outlier_mask,
+    normalize_land_use, parse_sale_date, sale_price_outlier_mask,
 )
+
+
+def test_parse_sale_date_reads_every_known_format():
+    raw = pd.Series(["25/05/22 0:00", "5/25/2022 0:00:00.000", "2022-05-25", None, "not a date"])
+    parsed = parse_sale_date(raw)
+    assert (parsed[:3] == pd.Timestamp("2022-05-25")).all()
+    assert parsed[3:].isna().all()
 
 
 def make_properties(n=6, **overrides):

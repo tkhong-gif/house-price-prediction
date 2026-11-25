@@ -77,7 +77,7 @@ STAGES = {
     "preprocess": (_preprocess, [
         ("raw_data", "merklenburg/Cama_Table_transformed.csv"),
         ("raw_data", "NC parquet/nc_places.parquet"),
-    ], "the county CSV is placed by hand (see README, Full data); the places file comes from the ingest stage"),
+    ], "run the ingest stage, which downloads both files (see README, data_ingestor.py)"),
     "features": (_features, [
         ("processed_data", "properties_clean.csv"), ("processed_data", "nc_places_map.csv"),
     ], "run the preprocess stage first"),
