@@ -1,20 +1,6 @@
-"""Get-started demo: train a random forest and a gradient boosting model on the
-10,000-house sample in data/sample/ and print their test-set accuracy. Takes well
-under a minute.
-
-It runs the same steps as src/components/training.py on less data and with fixed
-settings (training.DEFAULT_PARAMS) instead of a hyperparameter search:
-
-1. Split the sample 80/20 into train and test houses.
-2. Recompute the neighborhood price features from training houses only.
-3. Fit the preprocessor (impute missing values, scale numbers, one-hot encode
-   categories) and each model on log(total_value).
-4. Report RMSE, MAE, R squared and average percent error on the test houses.
-5. Save the models to output/models/demo/, where bin/predict_example.py --demo uses them.
-
-Usage (from the repository root):
-    uv run python bin/quick_train.py
-"""
+"""Get-started demo: train both model types on the 10,000-house sample and print their test accuracy.
+It runs the same steps as training.py with fixed settings instead of a search, in under
+a minute, and saves the models to output/models/demo/."""
 
 import os
 import sys

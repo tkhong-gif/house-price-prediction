@@ -1,18 +1,6 @@
-"""Build the small demo dataset (data/sample/properties_sample.csv) and the shareable
-copy of the full feature table from data/features/properties_features.csv.
-
-Both copies drop the street address and deed book/page columns. The models never use
-them, and leaving them out keeps the shared files from listing every home address in
-the county next to its sale price. The sample also drops `parcel_id`.
-
-The sample is what bin/quick_train.py trains on, so anyone can try the pipeline
-without downloading the full data. It only needs to be rebuilt if the feature table
-changes.
-
-Usage (from the repository root):
-    uv run python bin/make_sample.py                       # sample only
-    uv run python bin/make_sample.py --shared OUTPUT_DIR   # sample + full shareable copy
-"""
+"""Build the 10,000-house demo sample from the full feature table, without addresses, deed numbers or parcel IDs.
+With --shared it also writes a shareable copy of the full table. Usage: uv run python
+bin/make_sample.py [--shared OUTPUT_DIR]."""
 
 import argparse
 import os
@@ -35,7 +23,7 @@ def main():
 
     cfg = load_config()
     df = read_dataframe(resolve_path(cfg, "features_data"), "properties_features.csv")
-    df = df.drop(columns=PRIVATE_COLUMNS, errors="ignore")  # situs_zip is already dropped in cleaning
+    df = df.drop(columns=PRIVATE_COLUMNS, errors="ignore")
 
     sample = df.sample(SAMPLE_SIZE, random_state=cfg["training"]["random_state"]).drop(columns=["parcel_id"])
     save_dataframe(sample, os.path.join(cfg["paths"]["root"], "data", "sample"), "properties_sample.csv")

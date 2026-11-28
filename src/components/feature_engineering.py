@@ -1,34 +1,7 @@
-"""Add modeling features on top of the cleaned properties table.
-
-Reads data/processed/properties_clean.csv and adds property_age, price_per_sqft,
-per-neighborhood price aggregates, and accessibility features in four groups:
-
-- education: miles to the nearest school (school quality to be added once CMS
-  attendance zones and NC report card grades are sourced)
-- health care: share of places within COUNT_RADIUS_MILES that are health care
-- emergency: miles to the nearest fire station, police station, and emergency
-  department (see label_emergency_departments)
-- activity: share of places within COUNT_RADIUS_MILES that are activities
-  (parks, theaters, gyms, ...)
-
-plus places_count, the number of places of any kind within COUNT_RADIUS_MILES.
-Health care and activity are shares of places_count rather than raw counts: raw
-counts both mostly measured how built-up the area is (correlation 0.91), so
-places_count carries that on its own and the shares say what kind of places are
-nearby (correlation -0.27).
-
-Distances are raw miles rather than decay scores: the tree models split on
-thresholds, so any monotonic transform of distance gives them the same splits.
-
-price_momentum is the yearly growth rate of price_per_sqft in the house's
-neighborhood over MOMENTUM_START to MOMENTUM_END (the three years before the
-January 2023 assessment the target comes from), falling back to the house's area
-where the neighborhood has too few sales - a measure of where buyers expected
-prices to go, as far as recorded sales show it.
-
-The neighborhood aggregates and price_momentum here are computed on every row;
-training.py recomputes both from its training rows only.
-"""
+"""Stage 3: add the modeling features to the cleaned properties table.
+They cover the house's age, neighborhood sale prices and price growth (price_momentum),
+and access to schools, health care, emergency services and activities from the Overture
+places. training.py recomputes the neighborhood features from training rows only."""
 
 from datetime import datetime
 import numpy as np
@@ -38,38 +11,23 @@ from src.utils.common import read_dataframe, resolve_path, save_dataframe
 from src.utils.load_config import load_config
 
 CURRENT_YEAR = datetime.now().year
-EARTH_RADIUS = 3959 #miles
+EARTH_RADIUS = 3959
 
-# price_momentum window: the three years before the January 1, 2023 revaluation that
-# total_value comes from, so the feature carries nothing from after the target date.
 MOMENTUM_START = pd.Timestamp("2020-01-01")
 MOMENTUM_END = pd.Timestamp("2023-01-01")
-# Below this many sales in the window a neighborhood's trend is too noisy, and the
-# house's area trend is used instead (446 of ~2,900 neighborhoods clear it, ~46% of houses).
 MIN_MOMENTUM_SALES = 30
 
-# Health care and activity are counted within this radius; 5 miles still separates
-# dense and sparse parts of the county (e.g. ~620 activity places around Uptown vs ~70
-# around Mint Hill), where a 20-mile circle covers most of the county for every house.
 COUNT_RADIUS_MILES = 5
-# Nearest-distance features are capped here, so a house with nothing of a kind nearby
-# gets the cap rather than an arbitrarily large distance.
 MAX_DISTANCE_MILES = 20
 
-# Overture's emergency_department category is mostly individual ER doctors, and real
-# emergency departments are filed under many categories (obstetrics_and_gynecology,
-# travel_service, outpatient_care_facility, none at all), so they're found by name
-# instead: anything named like an emergency department/room, plus acute-care hospitals
-# with an ED whose Overture name doesn't say so.
 ED_NAME_PATTERN = r"(?i:emergency department|emergency room)|\b(?:ER|ED)$"
 ED_NAME_EXCLUDED_CATS = ["veterinarian", "emergency_pet_hospital", "dental_clinic"]
 ED_HOSPITAL_NAMES = [
     "Atrium Health University City", "Atrium Health Pineville", "Carolinas Medical Center Mercy",
     "Novant Health Presbyterian Medical Center", "Novant Health Matthews Medical Center",
     "Novant Health Ballantyne Medical Center",
-    # Overture has no point named for these two hospitals, so a building on each campus stands in
-    "Novant Huntersville L&D Unit",  # Novant Health Huntersville Medical Center
-    "Novant Health Heart & Vascular Institute - Mint Hill",  # Novant Health Mint Hill Medical Center
+    "Novant Huntersville L&D Unit",
+    "Novant Health Heart & Vascular Institute - Mint Hill",
     "Atrium Health Union", "Atrium Health Union West", "Atrium Health Cabarrus",
     "Atrium Health Kannapolis", "Lake Norman Regional Medical Center",
 ]
@@ -79,13 +37,11 @@ HEALTH_CARE_CATS = [
     "health_care", "doctors_office", "family_practice", "internal_medicine", "pediatric_clinic",
     "public_health_clinic", "urgent_care_clinic", "outpatient_care_facility", "dental_clinic",
     "general_dentistry", "pharmacy",
-    "hospital",  # emergency departments are relabeled first, so these are hospitals without one
+    "hospital",
 ]
 EMERGENCY_CATS = {
     "fire": ["fire_station"],
     "police": ["police_station"],
-    # Ambulances aren't included: Medic moves them between posts during the day, and
-    # Overture's ambulance_or_ems_service places are mostly clinicians and businesses.
     "medical": ["emergency_department_verified"],
 }
 ACTIVITY_CATS = [
@@ -189,13 +145,9 @@ def _growth_by(sales, keys):
 
 
 def add_price_momentum(df, source=None):
-    """price_momentum: neighborhood growth rate where it has at least MIN_MOMENTUM_SALES
-    sales in the window, else the area's. Computed from `source` rows (default: df
-    itself), like add_neighborhood_aggregates.
-
-    Each house only carries its most recent sale, so a neighborhood's sales in the
-    window are different houses each year - the trend partly reflects which houses
-    happened to sell, not only price change."""
+    """Yearly growth of price per sq ft in the house's neighborhood, or its area's when the neighborhood has fewer than MIN_MOMENTUM_SALES sales.
+    Computed from `source` rows (default: df itself); it partly reflects which houses
+    happened to sell."""
     source = df if source is None else source
     sale_date = pd.to_datetime(source["sale_date"], format="mixed")
     in_window = source["price_per_sqft"].notna() & (sale_date >= MOMENTUM_START) & (sale_date < MOMENTUM_END)

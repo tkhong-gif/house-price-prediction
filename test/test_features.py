@@ -11,7 +11,6 @@ from src.components.feature_engineering import (
 
 
 def test_nearest_distance_matches_known_distance():
-    # one degree of latitude is about 69.1 miles
     dist, idx = nearest_distance([35.0], [-80.0], [36.0, 40.0], [-80.0, -80.0])
     assert dist[0] == pytest.approx(69.1, abs=0.2)
     assert idx[0] == 0
@@ -82,5 +81,5 @@ def test_price_momentum_falls_back_to_area_for_small_neighborhoods():
         "price_per_sqft": 100 * 1.1 ** years,
     })
     out = add_price_momentum(df)
-    assert out["price_momentum"].round(6).nunique() == 1  # SMALL uses the area trend, same 10%
+    assert out["price_momentum"].round(6).nunique() == 1
     assert out["price_momentum"].iloc[0] == pytest.approx(0.1)

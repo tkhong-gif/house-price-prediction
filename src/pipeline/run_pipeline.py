@@ -1,24 +1,6 @@
-"""Run the pipeline stages in order, from raw data to the analysis report.
-
-Stages (each one reads the previous one's output files):
-
-    ingest      data_ingestor        Overture places -> data/raw/NC parquet/
-    preprocess  data_preprocessing   -> data/processed/properties_clean.csv
-    features    feature_engineering  -> data/features/properties_features.csv
-    train       training             -> output/models/, reports/training_metrics.csv
-    evaluate    evaluating           -> reports/validation_houses.csv
-    analyze     analysis             -> reports/analysis/report.md
-    finetune    finetune             -> output/models/finetuned/ (only when asked for)
-
-Usage (from the repository root):
-    uv run python -m src.pipeline                       # every stage except finetune
-    uv run python -m src.pipeline --from train          # resume from training
-    uv run python -m src.pipeline --only analyze        # one stage (or several, comma-separated)
-    uv run python -m src.pipeline --sample              # demo on data/sample/, no downloads needed
-
-Before each stage its input files are checked, so a missing download fails with a
-message saying what to fetch, instead of halfway through a long run.
-"""
+"""Run the pipeline stages in order: ingest, preprocess, features, train, evaluate and analyze (finetune only when asked).
+Each stage's input files are checked before the run starts. Usage: uv run python -m
+src.pipeline [--from STAGE | --only A,B | --sample]."""
 
 import argparse
 import os
@@ -71,7 +53,6 @@ def _finetune():
     finetune.run()
 
 
-# name -> (function, input files as (config path key, filename), hint if missing)
 STAGES = {
     "ingest": (_ingest, [], ""),
     "preprocess": (_preprocess, [
@@ -95,10 +76,8 @@ STAGES = {
         ("reports", "training_metrics.csv"), ("reports", "best_hyperparameters.json"),
     ], "run the train stage first"),
 }
-SAMPLE_SPLITS = 2  # the --sample demo's analysis uses fewer splits to stay quick
+SAMPLE_SPLITS = 2
 DEFAULT_STAGES = ["ingest", "preprocess", "features", "train", "evaluate", "analyze"]
-# The stage that writes each stage's inputs; when it is part of the same run, the inputs
-# don't have to exist before the run starts.
 PRODUCER = {"preprocess": "ingest", "features": "preprocess", "train": "features",
             "evaluate": "train", "analyze": "features", "finetune": "train"}
 

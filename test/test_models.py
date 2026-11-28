@@ -42,7 +42,6 @@ def test_split_has_no_overlap_and_recomputes_aggregates(splits):
     train, test = splits
     assert len(train) + len(test) > 9_000
     assert NEIGHBORHOOD_PRICE in test and "price_momentum" in test
-    # a neighborhood whose only sales are in the test split gets no neighborhood price
     train_nbhds = set(train.loc[train["price_per_sqft"].notna(), "neighborhood_code"])
     unseen = test[~test["neighborhood_code"].isin(train_nbhds)]
     assert unseen[NEIGHBORHOOD_PRICE].isna().all()
@@ -68,7 +67,6 @@ def test_model_beats_baseline_and_predict_round_trip(splits, tmp_path, monkeypat
     baseline = analysis.baseline_predict(train, test)
     assert eval_metrics(test[TARGET], preds)["mae"] < eval_metrics(test[TARGET], baseline)["mae"]
 
-    # save like quick_train.py does, then load through predict.py from a temporary folder
     save_artifacts(str(tmp_path) + "/demo/", {"with_neighborhood_price": pre}, {("with_neighborhood_price", "random_forest"): model})
     monkeypatch.setattr(predict, "resolve_path", lambda cfg, key: str(tmp_path) + "/")
     predict.load_artifact.cache_clear()
@@ -82,13 +80,13 @@ def test_model_beats_baseline_and_predict_round_trip(splits, tmp_path, monkeypat
 
 def test_best_model_name_prefers_trained_gradient_boosting(tmp_path, monkeypatch):
     monkeypatch.setattr(predict, "resolve_path", lambda cfg, key: str(tmp_path) + "/")
-    assert predict.best_model_name() == "gradient_boosting"  # nothing trained: first preference
+    assert predict.best_model_name() == "gradient_boosting"
     (tmp_path / "with_neighborhood_price_random_forest.joblib").write_bytes(b"")
-    assert predict.best_model_name() == "random_forest"  # the only one trained
+    assert predict.best_model_name() == "random_forest"
     (tmp_path / "with_neighborhood_price_gradient_boosting.joblib").write_bytes(b"")
     pd.DataFrame({"feature_set": ["with_neighborhood_price"] * 2, "model": ["random_forest", "gradient_boosting"],
                   "rmse": [1.0, 2.0]}).to_csv(tmp_path / "training_metrics.csv", index=False)
-    assert predict.best_model_name() == "random_forest"  # the training report decides
+    assert predict.best_model_name() == "random_forest"
 
 
 def test_analysis_tables(splits):

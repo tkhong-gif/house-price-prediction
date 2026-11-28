@@ -1,42 +1,8 @@
-"""Stage 6: how reliable the model is, and what each group of features is worth.
-
-training.py reports one test score from one split. This stage answers the questions
-that one number can't:
-
-1. Is the model better than a simple rule? A baseline (heated area x the
-   neighborhood's median price per sq ft, scaled to assessed values) is scored on the
-   same splits as the models.
-2. How stable is the score? Everything is repeated over `n_splits` random 80/20
-   splits; split 0 is the same split training.py uses.
-3. Where is the model weak? Errors on split 0 by area, price band and land use.
-4. What is each feature group worth? (the research question)
-   - drop-column test: retrain without the group and compare test MAE on the same
-     splits
-   - group permutation importance next to a pure-noise column
-   The rule for "this group matters" is fixed before looking at results
-   (MATTERS_MIN_MAE_INCREASE): removing it raises test MAE by at least 1% in most
-   splits, and shuffling it hurts more than shuffling the noise column.
-5. Same house, different areas: one typical house, estimated with each area's
-   typical location and accessibility values.
-
-Every model type in training.MODEL_TYPES is scored on both feature sets. The error
-breakdowns use BEST_MODEL, and the feature-group questions use GROUP_MODEL on the
-without_neighborhood_price feature set, because the neighborhood price already
-contains most of the effect of location and amenities (see training.py).
-
-Models here use fixed settings (training.DEFAULT_PARAMS) instead of a hyperparameter
-search, so many of them can be trained in reasonable time. Their scores are slightly
-below the tuned models in output/models/.
-
-Usage (from the repository root):
-    uv run python -m src.components.analysis --sample    # 10,000-house sample, a few minutes
-    uv run python -m src.components.analysis             # full feature table, much longer
-    uv run python -m src.components.analysis --splits 3 --skip-drop-column
-
-Outputs go to reports/analysis/ (reports/analysis_sample/ with --sample):
-summary.csv, split_metrics.csv, errors_by_*.csv, drop_column.csv,
-group_importance.csv, same_house_by_area.csv, and report.md, which puts them together.
-"""
+"""Stage 6: check how reliable the model is and what each group of features is worth.
+It compares the models with a simple size x neighborhood price baseline over repeated
+random splits, breaks errors down by area, price and house type, and retrains without
+each feature group. Results go to reports/analysis/report.md (reports/analysis_sample/
+with --sample)."""
 
 import argparse
 import os
@@ -52,9 +18,7 @@ from src.utils.load_config import load_config
 
 N_SPLITS = 5
 
-# The most accurate model on the sample; its errors are broken down by area and price.
 BEST_MODEL = "with_neighborhood_price__gradient_boosting"
-# The model type used for the feature-group tests and the same-house comparison.
 GROUP_MODEL = "gradient_boosting"
 GROUP_FEATURE_SET = "without_neighborhood_price"
 FEATURE_GROUPS = {
@@ -69,17 +33,13 @@ FEATURE_GROUPS = {
 }
 NOISE = "noise"
 
-# Decision rule, fixed in advance: a group matters if dropping it raises test MAE by at
-# least this fraction in more than half of the splits, and it ranks above the noise column.
 MATTERS_MIN_MAE_INCREASE = 0.01
 PERMUTATION_ROWS = 5_000
 PERMUTATION_REPEATS = 3
 
 PRICE_BANDS = 5
-WITHIN = 0.10  # share of houses estimated within 10% of their value
+WITHIN = 0.10
 
-# Columns that describe where a house is; the same-house comparison sets these to each
-# area's typical (median) values and keeps the house itself fixed.
 LOCATION_COLUMNS = [
     "latitude", "longitude", "neighborhood_sale_count", "price_momentum",
     "education_nearest_miles", "places_count", "health_care_share", "activity_share",
@@ -215,12 +175,10 @@ def drop_column_results(metrics):
 
 
 def group_importance(train, test, training_cfg):
-    """Permutation importance of each feature group and of a pure-noise column.
-
-    A model is trained on the group feature set plus NOISE (random numbers). Each group's
-    columns are then shuffled together on up to PERMUTATION_ROWS test houses, and the
-    rise in MAE is its importance. A group that doesn't beat the noise column carries no
-    more information than random numbers."""
+    """Permutation importance of each feature group, next to a column of random numbers.
+    Each group's columns are shuffled together on test houses and the rise in MAE is its
+    importance; a group that doesn't beat the noise column carries no useful
+    information."""
     rng = np.random.default_rng(training_cfg["random_state"])
     train = train.assign(**{NOISE: rng.normal(size=len(train))})
     test = test.assign(**{NOISE: rng.normal(size=len(test))})

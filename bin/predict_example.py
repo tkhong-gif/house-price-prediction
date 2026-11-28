@@ -1,18 +1,7 @@
-"""Estimate the assessed value of one house.
-
-By default it estimates predict.EXAMPLE_HOUSE (edit that dict in src/components/predict.py
-to try a different house) with the full trained models in output/models/ (from
-training.py, or downloaded from the project's Google Drive). With --parcel it uses a
-real house from the feature table instead, with all 20 features filled in and its actual
-assessed value shown for comparison. With --demo it uses the small model
-bin/quick_train.py saves to output/models/demo/, so it works right after the get-started
-demo without downloading anything.
-
-Usage (from the repository root):
-    uv run python bin/predict_example.py                     # the example house, full models
-    uv run python bin/predict_example.py --parcel 22339119   # a real house by parcel id
-    uv run python bin/predict_example.py --demo              # demo model from quick_train.py
-"""
+"""Estimate one house's assessed value with every trained model.
+By default it uses predict.EXAMPLE_HOUSE; --parcel ID uses a real house and shows its
+actual value, and --demo uses the quick_train.py models. Usage: uv run python
+bin/predict_example.py [--parcel ID | --demo]."""
 
 import argparse
 import os

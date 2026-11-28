@@ -1,23 +1,6 @@
-"""Retrain the last training run's best model on the current features, then validate it.
-
-Picks the best feature set x model from reports/training_metrics.csv (lowest RMSE, the
-metric training.py's hyperparameter search optimizes) and the settings that search
-chose for it from reports/best_hyperparameters.json, then retrains that one model with
-those settings on the current feature file - so it picks up features added since that
-run, such as price_momentum - without repeating the search. Tree models can't be
-updated in place when the feature list changes, so this is a full retrain of one model
-with fixed settings, not incremental fine-tuning. The settings were tuned without the
-new features, so a full training run may still find better ones.
-
-Validation, both against the last run:
-- test-set metrics on the same split training.py uses
-- the same houses as the last 10-house check (reports/validation_houses.csv, or 10
-  random test houses if that file doesn't exist)
-
-Artifacts go to output/models/finetuned/ and reports/finetuned_*.csv, so the last run's
-models and reports are left as they were. To make predict.py use the retrained model,
-move its two files from output/models/finetuned/ up into output/models/.
-"""
+"""Retrain the last training run's best model on the current features, with the settings that run chose.
+It validates the result against the last run and saves it to output/models/finetuned/,
+leaving the original models unchanged."""
 
 import json
 import os
@@ -55,10 +38,6 @@ def build_model(model_name, params, training_cfg):
     """The same estimator training.py searches over, with the given settings."""
     search = build_search_estimators(training_cfg["random_state"], training_cfg, [model_name])[model_name]
     model = clone(search.estimator).set_params(**params)
-    # training.py runs each fit single-threaded and parallelizes the search instead; a
-    # single random forest fit can use every core. gradient_boosting uses every core by
-    # itself; xgboost stays at n_jobs=1, which it needs on macOS (see
-    # training.build_search_estimators).
     if model_name == "random_forest":
         model.set_params(n_jobs=-1)
     return model

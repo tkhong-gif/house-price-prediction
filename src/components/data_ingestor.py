@@ -1,12 +1,6 @@
-"""Stage 1: download the raw data.
-
-Downloads, each skipped if its file is already there:
-
-- the Mecklenburg County CAMA parcel table, from the county's ArcGIS service in
-  config/config.yaml (`mecklenburg`), to data/raw/merklenburg/Cama_Table_transformed.csv
-- the Overture Maps places file (schools, clinics, parks, fire stations and so on) for
-  the bounding box in config/config.yaml, to data/raw/NC parquet/nc_places.parquet
-"""
+"""Stage 1: download the raw data, skipping files that are already there.
+It saves the county's CAMA parcel table to data/raw/merklenburg/ and the Overture Maps
+places to data/raw/NC parquet/."""
 
 import os
 import json
@@ -16,7 +10,6 @@ import pandas as pd
 from pathlib import Path
 from src.utils.load_config import load_config
 
-# The county's server refuses requests without a browser-like User-Agent (HTTP 403).
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; house-price-prediction pipeline)"}
 MECKLENBURG_FILE = "merklenburg/Cama_Table_transformed.csv"
 
@@ -47,11 +40,9 @@ class data_ingestor:
             print(f"{source}: {len(payload['features'])} features -> {out_file}")
 
     def fetch_mecklenburg(self, path, source_cfg):
-        """Download every parcel's attributes from the county's ArcGIS `query` endpoint
-        and save them as a CSV with the county's column names, the same layout as the
-        county's CSV download. Dates come from the service as epoch milliseconds and
-        are written as ISO dates (Eastern time), which data_preprocessing reads.
-        Skipped if the file already exists. Returns the file path."""
+        """Download every parcel from the county's ArcGIS service as a CSV with the county's column names.
+        Dates are written as ISO dates, and the download is skipped if the file already
+        exists. Returns the file path."""
         path = Path(path)
         if path.exists():
             return path
@@ -102,8 +93,6 @@ class data_ingestor:
             f"--bbox={bbox}",
             "-f", "geoparquet",
             "-o", str(path),
-            # the STAC catalog can lag a new release and report no data for the bbox;
-            # reading the S3 dataset directly doesn't depend on it
             "--no-stac",
         ], check=True)
         return path

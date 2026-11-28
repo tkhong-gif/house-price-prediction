@@ -1,17 +1,6 @@
-"""Predict `total_value` for a single Mecklenburg house using a trained model.
-
-Loads the preprocessor + model artifacts training.py saved to output/models/
-(`{feature_set}_preprocessor.joblib`, `{feature_set}_{model_name}.joblib`) and
-applies them to one property's feature values. The default feature set is
-with_neighborhood_price, the one meant for estimates; without_neighborhood_price is
-for studying what `area` and the accessibility features are worth.
-
-Missing feature keys are left as NaN and handled by the saved preprocessor the same
-way training does (median/most-frequent imputation) - callers don't need to supply
-every field. Imputed location fields (`area`, latitude/longitude, the accessibility
-features) fall back to county-wide typical values, so estimates are much weaker
-without them.
-"""
+"""Estimate `total_value` for one house with a saved preprocessor and model from output/models/.
+Missing features are filled as in training, but estimates are much weaker without the
+location fields."""
 
 import functools
 import os
@@ -25,12 +14,8 @@ from src.utils.common import resolve_path
 from src.utils.load_config import load_config
 
 DEFAULT_FEATURE_SET = "with_neighborhood_price"
-# Used when no model is named: the order to try when there's no training report.
-# Gradient boosting comes first because it was more accurate on the sample.
 MODEL_PREFERENCE = ["gradient_boosting", "random_forest"]
 
-# An example house (2 bed, 1 bath, 1,017 sq ft, built 1950, CHARLOTTE_1), used by
-# bin/predict_example.py and this module's __main__. Feature meanings are in the README.
 EXAMPLE_HOUSE = {
     "land_use_class": "single_family",
     "area": "CHARLOTTE_1",
@@ -95,12 +80,9 @@ def load_model(feature_set=DEFAULT_FEATURE_SET, model_name=None, models_dir=""):
 
 
 def predict_total_value(features, feature_set=DEFAULT_FEATURE_SET, model_name=None, models_dir=""):
-    """features: dict of training.FEATURE_SETS[feature_set] -> value (missing keys become NaN).
-    model_name: a type in training.MODEL_TYPES, or None for the best trained one.
-    models_dir: subfolder of output/models/ to load from ("" for the main models).
-
-    Returns the predicted total_value in dollars (original scale, log1p inverted).
-    """
+    """Estimate one house's value in dollars from a dict of feature values (missing keys become NaN).
+    model_name None uses the best trained model, and models_dir picks a subfolder of
+    output/models/ ("demo/" for the demo)."""
     preprocessor, model = load_model(feature_set, model_name, models_dir)
     row = pd.DataFrame([{col: features.get(col, np.nan) for col in FEATURE_SETS[feature_set]}])
     log_pred = model.predict(preprocessor.transform(row))[0]

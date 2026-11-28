@@ -11,10 +11,12 @@ from src.components.data_preprocessing import (
 
 
 def test_parse_sale_date_reads_every_known_format():
-    raw = pd.Series(["25/05/22 0:00", "5/25/2022 0:00:00.000", "2022-05-25", None, "not a date"])
+    raw = pd.Series(["25/05/22 0:00", "5/25/2022 0:00:00.000", "2022-05-25", None, "not a date",
+                     "2/5/9997 0:00:00.000"])
     parsed = parse_sale_date(raw)
     assert (parsed[:3] == pd.Timestamp("2022-05-25")).all()
-    assert parsed[3:].isna().all()
+    assert parsed[3:5].isna().all()
+    assert parsed[5].year == 9997
 
 
 def make_properties(n=6, **overrides):
@@ -60,7 +62,7 @@ def test_sale_price_outlier_mask_flags_extremes_only():
     mask = sale_price_outlier_mask(prices)
     assert mask.iloc[-4] and mask.iloc[-3]
     assert not mask.iloc[:40].any()
-    assert not mask.iloc[-2] and not mask.iloc[-1]  # missing and zero are not "outliers"
+    assert not mask.iloc[-2] and not mask.iloc[-1]
 
 
 @pytest.mark.parametrize("name, individual", [
@@ -79,7 +81,6 @@ def test_clean_properties_filters_rows_and_drops_private_columns():
         owner_name=["SMITH JOHN", "DOE JANE", "LEE AMY", "ABC PROPERTIES LLC", "KIM BO", "PARK JI"],
     )
     clean = clean_properties(df)
-    # vacant land, an LLC owner and a 50,000 sq ft "house" are removed; missing heated area is kept
     assert clean["parcel_id"].tolist() == [1, 2, 6]
     assert set(clean["land_use_class"]) <= {"single_family", "condo", "townhouse"}
     assert "owner_name" not in clean and "situs_zip" not in clean
@@ -119,5 +120,5 @@ def test_assign_area_merges_uninc_and_splits_charlotte():
     df["latitude"] = np.r_[np.linspace(35.0, 35.4, 30), np.full(9, 35.6), 35.6]
     df["longitude"] = np.r_[np.full(30, -80.8), np.full(9, -80.6), -80.6]
     out = assign_area(df)
-    assert out.loc[39, "area"] == "MATTHEWS"  # the UNINC parcel sits among Matthews parcels
+    assert out.loc[39, "area"] == "MATTHEWS"
     assert out.loc[:29, "area"].str.startswith("CHARLOTTE").all()

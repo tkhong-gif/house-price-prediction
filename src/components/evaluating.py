@@ -1,13 +1,6 @@
-"""Model evaluation beyond training.py's test-set metrics.
-
-validate_houses is a spot check: every trained model's estimate next to the actual
-total_value for a handful of individual houses, so errors can be read house by house
-instead of only as averages. Houses come from training.py's test split (rebuilt here
-with the same config and random_state), so no model saw them during training, and
-their sale-derived features are computed from training rows only, as in training.
-The split only matches training's if properties_features.csv hasn't changed since
-the models were trained.
-"""
+"""Spot-check every trained model on a handful of individual test houses.
+The houses come from training.py's test split, so no model saw them; this only holds
+while properties_features.csv is unchanged since training."""
 
 import numpy as np
 
@@ -59,7 +52,6 @@ def validate_houses(n=VALIDATION_SIZE, parcel_ids=None, random_state=0):
             try:
                 preprocessor, model = predict.load_model(feature_set, model_name)
             except FileNotFoundError:
-                # e.g. models downloaded before gradient_boosting was added: retrain to include it
                 print(f"skipping {feature_set} {model_name}: not trained yet")
                 continue
             add_estimates(results, houses, f"{feature_set}__{model_name}", preprocessor, model, features)

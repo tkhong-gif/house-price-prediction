@@ -1,18 +1,6 @@
-"""Stage 2: map the raw county records onto one schema, clean them and assign areas.
-
-The loaders/mappers below are promoted from `notebooks/eda.ipynb`, where they were
-validated against the raw data (county identification, shared-schema mapping, Wake's
-building-card rollup). This module adds the cleaning step the notebook didn't do and
-turns it into a reusable, rerunnable pipeline stage.
-
-Note: `data/processed/properties_combined.csv` (the notebook's raw-merge output) is
-left untouched by this module - only `properties_clean.csv` is written here.
-
-Scope is Mecklenburg only. The Buncombe/Guilford/Wake loaders and mappers are
-commented out rather than deleted, so they can be switched back on. After cleaning,
-each parcel gets an `area` (see assign_area) so houses can be compared across towns
-and parts of Charlotte.
-"""
+"""Stage 2: map the raw county records onto one schema, clean them and assign each house an area.
+Only Mecklenburg is used; the loaders for other counties are commented out. Output:
+data/processed/properties_clean.csv."""
 
 import re
 from datetime import datetime
@@ -30,10 +18,6 @@ COMMON_COLUMNS = [
     "latitude", "longitude",
 ]
 
-# Canonical land-use buckets. County taxonomies don't line up exactly, so this is a
-# best-effort mapping of the most common raw values into a small set every county
-# rolls up into; anything present but unrecognized falls through to "other" and
-# anything missing stays missing.
 LAND_USE_MAP = {
     "R": "single_family",
     "100": "single_family",
@@ -55,10 +39,6 @@ ARMS_LENGTH_MIN_PRICE = 10_000
 ARMS_LENGTH_MAX_PRICE = 20_000_000
 ARMS_LENGTH_LOOKBACK_YEARS = 10
 
-# Keywords identifying an owner_name as a business/institutional entity rather than an
-# individual person (LLCs, trusts, banks, HOAs, government bodies, etc.) - used to drop
-# non-individual-owned properties, which are noisier comps for a homebuyer-focused dataset.
-# Missing/blank owner_name is left in (can't confirm either way) rather than dropped.
 NON_INDIVIDUAL_OWNER_KEYWORDS = [
     "LLC", "L L C", "INC", "INCORPORATED", "CORP", " CO ", " CO,", " CO.", "COMPANY",
     "LP", "LLP", "LTD", "TRUST", "ESTATE OF", "BANK", "CHURCH", "ASSOC", "ASSN",
@@ -70,36 +50,18 @@ NON_INDIVIDUAL_OWNER_KEYWORDS = [
 ]
 NON_INDIVIDUAL_OWNER_PATTERN = "|".join(re.escape(k) for k in NON_INDIVIDUAL_OWNER_KEYWORDS)
 
-# Residential-only land_use_class values - drops "other"/"vacant_land", which catches large
-# institutional parcels (hospitals, colleges, airports, factories) that have no owner_name
-# giveaway at all (e.g. "FUJIFILM DIOSYNTH BIOTECHNOLOGIES", "RALEIGH DURHAM INTERNATIONAL"),
-# since none of them are ever tagged single_family/condo/townhouse.
 RESIDENTIAL_LAND_USE_CLASSES = ["single_family", "condo", "townhouse"]
 
-# Sane heated_area bounds (sqft) for a residential unit - catches county-assessor mislabeling
-# that survives both filters above: a handful of parcels up to 350k+ sqft are still tagged
-# single_family despite obviously being commercial/apartment buildings. Rows with heated_area
-# missing (can't verify either way) are left in, same policy as blank owner_name.
 MIN_HEATED_AREA = 300
 MAX_HEATED_AREA = 10_000
 
-# UNINC is unincorporated land scattered between towns, and STALLINGS is 52 parcels of a
-# town that sits mostly in Union County - neither works as an area of its own, so each
-# of their parcels takes the majority city of its nearest labeled parcels.
 MERGE_INTO_NEAREST_CITY = ["UNINC", "STALLINGS"]
 NEAREST_CITY_NEIGHBORS = 15
 
-# Charlotte is ~75% of the county, so it's split into areas made of whole neighborhoods
-# (neighborhood_code), each at most MAX_AREA_SIZE houses. Splitting ~223k houses in half
-# repeatedly lands at ~28k per area; the largest single neighborhood is ~1.5k houses, so
-# a split never overshoots by much. Other towns keep their natural size.
 SPLIT_CITY = "CHARLOTTE"
 MAX_AREA_SIZE = 30_000
 
 
-# Buncombe's ArcGIS export carries these as JSON strings rather than numbers, so after
-# concatenation with the other counties these columns end up as mixed-type `object`
-# columns unless coerced.
 NUMERIC_COLUMNS = [
     "situs_street_num", "situs_zip", "sale_price", "land_value", "building_value",
     "total_value", "acreage", "year_built", "heated_area", "bedrooms", "bathrooms",
@@ -114,8 +76,6 @@ def load_mecklenburg(raw_path):
     """Read the Mecklenburg County CAMA table from data/raw/merklenburg/ as a
     DataFrame, with the county's original column names."""
     path = raw_path + "merklenburg/Cama_Table_transformed.csv"
-    # A copy re-saved by Excel under a European locale uses ";" between columns and
-    # "," as the decimal mark - detect that from the header instead of misparsing it.
     with open(path, encoding="utf-8-sig") as f:
         header = f.readline()
     european = header.count(";") > header.count(",")
@@ -125,10 +85,6 @@ def load_mecklenburg(raw_path):
     )
 
 
-# Sale date formats seen in Mecklenburg files, tried in order: a copy re-saved by Excel
-# under a European locale ("25/05/22 0:00"), the county's CSV download
-# ("5/25/2022 0:00:00.000"), and ISO dates (what data_ingestor writes for the
-# county's ArcGIS service).
 SALE_DATE_FORMATS = ["%d/%m/%y %H:%M", "%m/%d/%Y %H:%M:%S.%f", "%Y-%m-%d"]
 
 
@@ -137,7 +93,7 @@ def parse_sale_date(values):
     Each value takes the first format that fits, so the original European format
     gives exactly the same dates as before."""
     values = values.astype("string").str.strip()
-    parsed = pd.Series(pd.NaT, index=values.index, dtype="datetime64[ns]")
+    parsed = pd.Series(pd.NaT, index=values.index, dtype="datetime64[us]")
     for fmt in SALE_DATE_FORMATS:
         missing = parsed.isna()
         if not missing.any():
@@ -157,7 +113,7 @@ def meck_to_common(df):
         "situs_street_num": df["streetnumber"],
         "situs_street_name": df["streetname"],
         "situs_city": df["loccity"],
-        "situs_zip": pd.NA,  # only the owner's mailing zip is present, not situs
+        "situs_zip": pd.NA,
         "sale_price": df["saleprice"],
         "sale_date": parse_sale_date(df["saledate"]),
         "deed_book": df["deed_book"],
@@ -172,8 +128,8 @@ def meck_to_common(df):
         "heated_area": df["heatedarea"],
         "bedrooms": df["bedrooms"],
         "bathrooms": df["fullbath"] + 0.5 * df["halfbath"],
-        "latitude": df["xcoord"],   # NB: this county's export has x/y swapped vs. the usual lon/lat convention
-        "longitude": df["ycoord"],  # (xcoord holds ~35 = latitude, ycoord holds ~-80 = longitude for Mecklenburg)
+        "latitude": df["xcoord"],
+        "longitude": df["ycoord"],
     })
     return out[COMMON_COLUMNS]
 
@@ -239,16 +195,9 @@ def is_individual_owner(owner_name):
 
 
 def clean_properties(df):
-    """Clean the combined property table, in this order:
-
-    1. Drop duplicate rows and convert NUMERIC_COLUMNS to numbers.
-    2. Blank out impossible sale dates, zero or outlier sale prices, and unknown
-       (0) or future build years.
-    3. Add `arms_length_sale`, a rough flag for normal market sales (price range
-       and a recent sale date).
-    4. Keep only single-family homes, condos and townhouses whose heated area is
-       missing or within MIN_HEATED_AREA to MAX_HEATED_AREA.
-    5. Remove business and institution owners, then drop owner_name."""
+    """Clean the combined property table: drop duplicates, blank impossible values and flag normal market sales (`arms_length_sale`).
+    Keep only single-family homes, condos and townhouses of a plausible size, and remove
+    business and institution owners."""
     df = df.drop_duplicates().copy()
 
     for col in NUMERIC_COLUMNS:
@@ -261,9 +210,6 @@ def clean_properties(df):
     df.loc[df["sale_price"] == 0, "sale_price"] = pd.NA
     df.loc[sale_price_outlier_mask(df["sale_price"]), "sale_price"] = pd.NA
 
-    # year_built == 0 is each source's placeholder for "unknown", not a real
-    # construction year (unlike sale_date, genuine pre-1900 NC homes exist, so only
-    # the placeholder value is nulled here, not an early cutoff).
     df.loc[(df["year_built"] == 0) | (df["year_built"] > current_year), "year_built"] = pd.NA
 
     recent_cutoff = pd.Timestamp(year=current_year - ARMS_LENGTH_LOOKBACK_YEARS, month=1, day=1)
@@ -278,8 +224,6 @@ def clean_properties(df):
     bad_heated_area = df["heated_area"].notna() & ~df["heated_area"].between(MIN_HEATED_AREA, MAX_HEATED_AREA)
     df = df[~bad_heated_area]
 
-    # The individual-owner filter needs owner_name, so it runs before owner_name (and
-    # situs_zip, which is always empty for Mecklenburg) are dropped.
     df = df[is_individual_owner(df["owner_name"])].copy()
     df = df.drop(columns=["owner_name", "situs_zip"])
 
@@ -299,7 +243,6 @@ def median_split(nbhds, max_size):
     max_size houses. Returns a list of parts."""
     if nbhds["n"].sum() <= max_size or len(nbhds) == 1:
         return [nbhds]
-    # a degree of longitude is only ~cos(latitude) as wide as a degree of latitude
     lat_span = nbhds["latitude"].max() - nbhds["latitude"].min()
     lon_span = (nbhds["longitude"].max() - nbhds["longitude"].min()) * np.cos(np.radians(nbhds["latitude"].mean()))
     nbhds = nbhds.sort_values("latitude" if lat_span >= lon_span else "longitude")
@@ -324,7 +267,6 @@ def assign_area(df):
     nbhd_area = {code: f"{SPLIT_CITY}_{i}" for i, part in enumerate(parts, 1) for code in part.index}
     df.loc[has_nbhd, "area"] = df.loc[has_nbhd, "neighborhood_code"].map(nbhd_area)
 
-    # the few Charlotte parcels with no neighborhood_code take their nearest neighbors' area
     no_nbhd = in_city & ~has_nbhd
     if no_nbhd.any():
         df.loc[no_nbhd, "area"] = nearest_label(df[has_nbhd], "area", df[no_nbhd])

@@ -1,38 +1,7 @@
-"""Train random forest and gradient boosting regressors for `total_value` (Mecklenburg).
-
-Reads data/features/properties_features.csv and trains each model type in
-MODEL_TYPES on two feature sets, so 4 models are trained:
-
-- random_forest: sklearn RandomForestRegressor
-- gradient_boosting: sklearn HistGradientBoostingRegressor. Same method as xgboost
-  (small trees added one after another, each correcting the ones before), without
-  the extra dependency or the macOS crash xgboost had. On the 10,000-house sample it
-  beat the random forest by about 1.3 points of average error (7.97% vs 9.3%).
-
-The xgboost setup is still in build_search_estimators and can be switched back on by
-adding "xgboost" to MODEL_TYPES (install it with `uv sync --extra xgboost`).
-
-- with_neighborhood_price: every feature, including neighborhood_median_price_per_sqft
-- without_neighborhood_price: the same minus that column. The neighborhood price
-  already contains most of the effect of location, amenities and area, so without it
-  the `area` and accessibility features have to carry that signal themselves - this is
-  the model to read when asking what those features are worth.
-
-The split is random (80/20), not grouped by neighborhood: the use case is valuing a
-house in a neighborhood that already has sales, and with a neighborhood-grouped split
-every test house would be missing its neighborhood aggregates. Those aggregates and
-price_momentum are recomputed here from training rows only, so a test house's own
-sale never feeds its features.
-
-`land_value`/`building_value` and sale-derived columns are dropped as target leakage
-(total_value is exactly land_value + building_value) or near-entirely missing.
-`neighborhood_code` is dropped in favor of its aggregates and `area`. See
-config/config.yaml `training:` section for the split/hyperparameters used below.
-
-Hyperparameters are tuned per feature set per model type via RandomizedSearchCV
-(config/config.yaml `training.search_iter`/`cv_folds`). Each fitted search's
-`best_estimator_` (not the search wrapper itself) is what gets saved.
-"""
+"""Stage 4: train random forest and gradient boosting models for `total_value` on two feature sets, with and without the neighborhood price.
+The data is split 80/20 at random, features from sale prices are recomputed from
+training rows only, and settings are tuned with RandomizedSearchCV. Models go to
+output/models/ and scores to reports/training_metrics.csv."""
 
 import json
 import os
@@ -58,8 +27,6 @@ from src.utils.load_config import load_config
 
 TARGET = "total_value"
 NEIGHBORHOOD_PRICE = "neighborhood_median_price_per_sqft"
-# Features built from sale prices - dropped from the feature file and recomputed from
-# training rows only, so a test house's own sale never feeds its features.
 SALE_DERIVED_FEATURES = [NEIGHBORHOOD_PRICE, "neighborhood_sale_count", "price_momentum"]
 
 CATEGORICAL_FEATURES = ["land_use_class", "area"]
@@ -75,8 +42,6 @@ FEATURE_SETS = {
     "with_neighborhood_price": FEATURE_COLUMNS,
     "without_neighborhood_price": [c for c in FEATURE_COLUMNS if c != NEIGHBORHOOD_PRICE],
 }
-# Model types trained, validated and served. "xgboost" is also available (see
-# build_search_estimators) but left out for now.
 MODEL_TYPES = ["random_forest", "gradient_boosting"]
 
 
@@ -133,19 +98,12 @@ def eval_metrics(y_true, y_pred):
     }
 
 
-# max_depth capped (never None/unbounded): unbounded depth on the earlier ~900k-row
-# multi-county data once produced a 13.6GB random_forest.joblib (grossly overfit and
-# impractical to load later). Depth 20 on Mecklenburg alone still gives ~1.1GB files.
 RANDOM_FOREST_PARAM_DISTRIBUTIONS = {
     "n_estimators": [100, 150, 200, 300],
     "max_depth": [10, 15, 20],
     "min_samples_leaf": [1, 2, 5, 10],
     "max_features": ["sqrt", "log2", 0.5, 1.0],
 }
-# Gradient boosting stops adding trees by itself (early stopping on 10% of the training
-# rows, after 50 trees without improvement), so the number of trees isn't searched.
-# The ranges are centred on the best settings from a 30-candidate search on the sample
-# (learning_rate 0.03, max_leaf_nodes 63, min_samples_leaf 10, l2 1.0, max_features 0.5).
 GRADIENT_BOOSTING_BASE = dict(max_iter=3000, early_stopping=True, validation_fraction=0.1, n_iter_no_change=50)
 GRADIENT_BOOSTING_PARAM_DISTRIBUTIONS = {
     "learning_rate": [0.03, 0.05, 0.1],
@@ -154,9 +112,6 @@ GRADIENT_BOOSTING_PARAM_DISTRIBUTIONS = {
     "l2_regularization": [0.0, 1.0, 5.0],
     "max_features": [0.5, 0.8, 1.0],
 }
-# Each boosting step adds learning_rate x a correction, so a small learning_rate needs
-# many trees: 0.01 x 100 trees barely moves from the starting guess (20.9% average
-# error on the sample). Every combination here allows enough steps.
 XGBOOST_PARAM_DISTRIBUTIONS = {
     "n_estimators": [400, 700, 1000],
     "max_depth": [5, 6, 8],
@@ -166,7 +121,6 @@ XGBOOST_PARAM_DISTRIBUTIONS = {
     "min_child_weight": [1, 5, 10],
 }
 
-# Fixed settings for quick runs that skip the search (bin/quick_train.py, analysis.py).
 DEFAULT_PARAMS = {
     "random_forest": {"n_estimators": 100, "max_depth": 20, "min_samples_leaf": 2, "max_features": 0.5},
     "gradient_boosting": {"learning_rate": 0.05, "max_leaf_nodes": 63, "min_samples_leaf": 10,
@@ -193,13 +147,6 @@ def build_search_estimators(random_state, training_cfg, model_types=None):
     parameter grid with `cv_folds`-fold cross-validation, scored by RMSE. xgboost is
     only imported when it is asked for, so it doesn't have to be installed otherwise."""
     model_types = MODEL_TYPES if model_types is None else model_types
-    # n_jobs=1 on each base estimator, n_jobs=-1 on the search itself: parallelizes across
-    # search candidates/CV folds (separate worker processes) instead of nesting parallelism
-    # inside each fit. Also required for xgboost specifically - on this xgboost 3.4.1 /
-    # Python 3.14 / macOS arm64 combo, n_jobs=-1 *inside* a single XGBRegressor fit segfaults
-    # deterministically regardless of tree_method, and the default tree_method="hist"
-    # segfaults even single-threaded (verified via bisection); tree_method="approx" + n_jobs=1
-    # is the combination that survives.
     search_kwargs = dict(
         n_iter=training_cfg["search_iter"], cv=training_cfg["cv_folds"],
         scoring="neg_root_mean_squared_error", random_state=random_state, n_jobs=-1, refit=True,
@@ -211,7 +158,6 @@ def build_search_estimators(random_state, training_cfg, model_types=None):
             RANDOM_FOREST_PARAM_DISTRIBUTIONS, **search_kwargs,
         )
     if "gradient_boosting" in model_types:
-        # sklearn limits each search worker's threads, so this doesn't oversubscribe the CPU
         searches["gradient_boosting"] = RandomizedSearchCV(
             HistGradientBoostingRegressor(random_state=random_state, **GRADIENT_BOOSTING_BASE),
             GRADIENT_BOOSTING_PARAM_DISTRIBUTIONS, **search_kwargs,
